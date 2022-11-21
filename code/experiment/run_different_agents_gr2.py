@@ -1,6 +1,6 @@
 import numpy as np
 import argparse
-
+import wandb
 from maci.learners import MAVBAC, MASQL
 from maci.misc.sampler import MASampler
 from maci.environments import PBeautyGame, MatrixGame
@@ -11,6 +11,7 @@ import datetime
 from copy import deepcopy
 from maci.get_agents import ddpg_agent, masql_agent, pr2ac_agent
 
+from tensorboardX import SummaryWriter
 import maci.misc.tf_utils as U
 import os
 
@@ -42,18 +43,14 @@ def parse_args():
     # ['particle-simple_spread', 'particle-simple_adversary', 'particle-simple_tag', 'particle-simple_push']
     # matrix-prison , matrix-prison
     # pbeauty
-    parser.add_argument('-g', "--game_name", type=str, default="pbeauty", help="name of the game")
+    parser.add_argument('-g', "--game_name", type=str, default="particle-simple_spread", help="name of the game")
     parser.add_argument('-p', "--p", type=float, default=1.1, help="p")
     parser.add_argument('-mu', "--mu", type=float, default=1.5, help="mu")
     parser.add_argument('-r', "--reward_type", type=str, default="abs", help="reward type")
     parser.add_argument('-mp', "--max_path_length", type=int, default=1, help="reward type")
-<<<<<<< HEAD
     parser.add_argument('-ms', "--max_steps", type=int, default=10000, help="reward type")
-=======
-    parser.add_argument('-ms', "--max_steps", type=int, default=20000, help="reward type")
->>>>>>> b5b4e95f91f592911679eca78671ebe723447db6
     parser.add_argument('-me', "--memory", type=int, default=0, help="reward type")
-    parser.add_argument('-n', "--n", type=int, default=10, help="name of the game")
+    parser.add_argument('-n', "--n", type=int, default=2, help="agent number")
     parser.add_argument('-bs', "--batch_size", type=int, default=64, help="name of the game")
     parser.add_argument('-hm', "--hidden_size", type=int, default=100, help="name of the game")
     parser.add_argument('-re', "--repeat", type=bool, default=False, help="name of the game")
@@ -101,7 +98,6 @@ def main(arglist):
         model_name = model_name + '-{}'.format(arglist.aux)
 
     suffix = '{}/{}/{}/{}'.format(path_prefix, agent_num, model_name, timestamp)
-
     print(suffix)
 
     logger.add_tabular_output('./log/{}.csv'.format(suffix))
@@ -110,7 +106,6 @@ def main(arglist):
     os.makedirs(snapshot_dir, exist_ok=True)
     os.makedirs(policy_dir, exist_ok=True)
     logger.set_snapshot_dir(snapshot_dir)
-
     agents = []
     M = arglist.hidden_size
     batch_size = arglist.batch_size
@@ -124,7 +119,7 @@ def main(arglist):
         'eval_render': True,
         'eval_n_episodes': 10
     }
-
+    wandb.init(project="MARL_GR2",config=arglist)
     with U.single_threaded_session():
         for i, model_name in enumerate(model_names):
             if 'PR2AC' in model_name:

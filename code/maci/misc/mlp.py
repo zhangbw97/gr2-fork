@@ -1,7 +1,8 @@
 import tensorflow as tf
 
 from rllab.core.serializable import Serializable
-
+import sys
+sys.path.insert(1, '/home/bowen/marl_ws/rllab')
 from sandbox.rocky.tf.core.parameterized import Parameterized
 from maci.misc import tf_utils
 

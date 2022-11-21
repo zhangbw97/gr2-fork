@@ -1,6 +1,6 @@
 import numpy as np
 import time
-
+import wandb
 from maci.misc import logger
 from copy import deepcopy
 
@@ -164,7 +164,6 @@ class MASampler(SimpleSampler):
         self._max_path_return = np.array([-np.inf] * self.agent_num, dtype=np.float32)
         self._n_episodes = 0
         self._total_samples = 0
-
         self._current_observation_n = None
         self.env = None
         self.agents = None
@@ -199,7 +198,7 @@ class MASampler(SimpleSampler):
         self._path_length += 1
         self._path_return += np.array(reward_n, dtype=np.float32)
         self._total_samples += 1
-
+        self.env.render()
         for i, agent in enumerate(self.agents):
             action = deepcopy(action_n[i])
             if agent.pool.joint:
@@ -243,7 +242,14 @@ class MASampler(SimpleSampler):
             logger.record_tabular('last-path-return_agent_{}'.format(i), self._last_path_return[i])
         logger.record_tabular('episodes', self._n_episodes)
         logger.record_tabular('total-samples', self._total_samples)
-
+        log_dict = {}
+        for i in range(self.agent_num):
+            log_dict.update({'max-path-return_agent_{}'.format(i): self._max_path_return[i]})
+            log_dict.update({'mean-path-return_agent_{}'.format(i): self._mean_path_return[i]})
+            log_dict.update({'last-path-return_agent_{}'.format(i): self._last_path_return[i]})
+        log_dict.update({'episodes': self._n_episodes})
+        log_dict.update({'total-samples': self._total_samples})
+        wandb.log(log_dict)
 
 
 class DummySampler(Sampler):
