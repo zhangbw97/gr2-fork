@@ -1,9 +1,9 @@
 import numpy as np
 import time
-import wandb
+#import wandb
 from maci.misc import logger
 from copy import deepcopy
-
+import tensorflow as tf
 
 def rollout(env, policy, path_length, render=False, speedup=None):
     Da = env.action_space.flat_dim
@@ -154,7 +154,7 @@ class SimpleSampler(Sampler):
 
 
 class MASampler(SimpleSampler):
-    def __init__(self, agent_num, joint, **kwargs):
+    def __init__(self, tb_writer, agent_num, joint, **kwargs):
         super(SimpleSampler, self).__init__(**kwargs)
         self.agent_num = agent_num
         self.joint = joint
@@ -167,7 +167,8 @@ class MASampler(SimpleSampler):
         self._current_observation_n = None
         self.env = None
         self.agents = None
-
+        self._tb_writer = tb_writer
+        self._val_at_risk = 0
     def set_policy(self, policies):
         for agent, policy in zip(self.agents, policies):
             agent.policy = policy
@@ -185,6 +186,10 @@ class MASampler(SimpleSampler):
         self.agents = agents
 
     def sample(self):
+        """
+        1. get action and step forward
+        2. add transition into replay buffer
+        """
         if self._current_observation_n is None:
             self._current_observation_n = self.env.reset()
         action_n = []
@@ -197,26 +202,29 @@ class MASampler(SimpleSampler):
         next_observation_n, reward_n, done_n, info = self.env.step(action_n)
         self._path_length += 1
         self._path_return += np.array(reward_n, dtype=np.float32)
+        
+        #self._mean_reward = (self._mean_reward * self._total_samples + np.sum(reward_n)) / (self._total_samples + len(reward_n))
         self._total_samples += 1
         self.env.render()
         for i, agent in enumerate(self.agents):
             action = deepcopy(action_n[i])
-            if agent.pool.joint:
-                opponent_action = deepcopy(action_n)
-                del opponent_action[i]
-                opponent_action = np.array(opponent_action).flatten()
-                agent.pool.add_sample(observation=self._current_observation_n[i],
-                                      action=action,
-                                      reward=reward_n[i],
-                                      terminal=done_n[i],
-                                      next_observation=next_observation_n[i],
-                                      opponent_action=opponent_action)
-            else:
-                agent.pool.add_sample(observation=self._current_observation_n[i],
-                                      action=action,
-                                      reward=reward_n[i],
-                                      terminal=done_n[i],
-                                      next_observation=next_observation_n[i])
+            if reward_n[i]<= self._val_at_risk:
+                if agent.pool.joint:
+                    opponent_action = deepcopy(action_n)
+                    del opponent_action[i]
+                    opponent_action = np.array(opponent_action).flatten()
+                    agent.pool.add_sample(observation=self._current_observation_n[i],
+                                        action=action,
+                                        reward=reward_n[i],
+                                        terminal=done_n[i],
+                                        next_observation=next_observation_n[i],
+                                        opponent_action=opponent_action)
+                else:
+                    agent.pool.add_sample(observation=self._current_observation_n[i],
+                                        action=action,
+                                        reward=reward_n[i],
+                                        terminal=done_n[i],
+                                        next_observation=next_observation_n[i])
 
         if np.all(done_n) or self._path_length >= self._max_path_length:
             self._current_observation_n = self.env.reset()
@@ -237,20 +245,22 @@ class MASampler(SimpleSampler):
 
     def log_diagnostics(self):
         for i in range(self.agent_num):
+            self._tb_writer.add_scalars("max-path-return_agent_" + str(i),{"Agent" + str(i): self._max_path_return[i]}, self._total_samples)
+            self._tb_writer.add_scalars("mean-path-return_agent_" + str(i),{"Agent" + str(i): self._mean_path_return[i]}, self._total_samples)
             logger.record_tabular('max-path-return_agent_{}'.format(i), self._max_path_return[i])
             logger.record_tabular('mean-path-return_agent_{}'.format(i), self._mean_path_return[i])
             logger.record_tabular('last-path-return_agent_{}'.format(i), self._last_path_return[i])
         logger.record_tabular('episodes', self._n_episodes)
         logger.record_tabular('total-samples', self._total_samples)
-        log_dict = {}
-        for i in range(self.agent_num):
-            log_dict.update({'max-path-return_agent_{}'.format(i): self._max_path_return[i]})
-            log_dict.update({'mean-path-return_agent_{}'.format(i): self._mean_path_return[i]})
-            log_dict.update({'last-path-return_agent_{}'.format(i): self._last_path_return[i]})
-        log_dict.update({'episodes': self._n_episodes})
-        log_dict.update({'total-samples': self._total_samples})
-        wandb.log(log_dict)
-
+        # log_dict = {}
+        # for i in range(self.agent_num):
+        #     log_dict.update({'max-path-return_agent_{}'.format(i): self._max_path_return[i]})
+        #     log_dict.update({'mean-path-return_agent_{}'.format(i): self._mean_path_return[i]})
+        #     log_dict.update({'last-path-return_agent_{}'.format(i): self._last_path_return[i]})
+        # log_dict.update({'episodes': self._n_episodes})
+        # log_dict.update({'total-samples': self._total_samples})
+        #wandb.log(log_dict)
+        #wandb.tensorflow.log(tf.summary.merge_all())
 
 class DummySampler(Sampler):
     def __init__(self, batch_size, max_path_length):

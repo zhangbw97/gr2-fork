@@ -28,6 +28,7 @@ class MASQL(MARLAlgorithm):
             qf,
             target_qf,
             policy,
+            tb_writer,
             plotter=None,
             policy_lr=1E-3,
             qf_lr=1E-3,
@@ -58,7 +59,7 @@ class MASQL(MARLAlgorithm):
         self.target_qf = target_qf
         self._policy = policy
         self.plotter = plotter
-
+        self._tb_writer = tb_writer
         self.agent_id = agent_id
 
         self._qf_lr = qf_lr
@@ -307,7 +308,7 @@ class MASQL(MARLAlgorithm):
         self._sess.run(self._training_ops, feed_dict)
         if iteration % self._qf_target_update_interval == 0 and self._train_qf:
             self._sess.run(self._target_ops)
-
+        self.log_diagnostics(iteration,batch)  
     def _get_feed_dict(self, batch, annealing):
         """Construct a TensorFlow feed dictionary from a sample batch."""
 
@@ -324,7 +325,7 @@ class MASQL(MARLAlgorithm):
         return feeds
 
     @overrides
-    def log_diagnostics(self, batch):
+    def log_diagnostics(self,iteration, batch):
         """Record diagnostic information.
         Records the mean and standard deviation of Q-function and the
         squared Bellman residual of the  s (mean squared Bellman error)
@@ -335,7 +336,7 @@ class MASQL(MARLAlgorithm):
         feeds = self._get_feed_dict(batch)
         qf, bellman_residual = self._sess.run(
             [self._q_values, self._bellman_residual], feeds)
-
+        self._tb_writer.add_scalars("bellman_residual",{"Agent" + str(self._agent_id): bellman_residual}, iteration)
         logger.record_tabular('qf-avg-agent-{}'.format(self.agent_id), np.mean(qf))
         logger.record_tabular('qf-std-agent-{}'.format(self.agent_id), np.std(qf))
         logger.record_tabular('mean-sq-bellman-error-agent-{}'.format(self.agent_id), bellman_residual)

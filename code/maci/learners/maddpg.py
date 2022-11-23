@@ -30,6 +30,7 @@ class MADDPG(MARLAlgorithm):
             target_qf,
             policy,
             target_policy,
+            tb_writer,
             opponent_policy=None,
             plotter=None,
             policy_lr=1E-3,
@@ -60,7 +61,7 @@ class MADDPG(MARLAlgorithm):
         self.opponent_policy = opponent_policy
         # self._target_policy._name = 'target_' + self._target_policy._name
         self.plotter = plotter
-
+        self._tb_writer = tb_writer
         self._agent_id = agent_id
         self.joint = joint
         self.opponent_modelling = opponent_modelling
@@ -266,7 +267,7 @@ class MADDPG(MARLAlgorithm):
         self._sess.run(self._training_ops, feed_dict)
         if iteration % self._qf_target_update_interval == 0 and self._train_qf:
             self._sess.run(self._target_ops)
-
+        self.log_diagnostics(iteration,batch)       
     def _get_feed_dict(self, batch):
         """Construct a TensorFlow feed dictionary from a sample batch."""
         feeds = {
@@ -286,7 +287,7 @@ class MADDPG(MARLAlgorithm):
         return feeds
 
     @overrides
-    def log_diagnostics(self, batch):
+    def log_diagnostics(self,iteration, batch ):
         """Record diagnostic information.
         Records the mean and standard deviation of Q-function and the
         squared Bellman residual of the  s (mean squared Bellman error)
@@ -297,7 +298,14 @@ class MADDPG(MARLAlgorithm):
         feeds = self._get_feed_dict(batch)
         qf, bellman_residual = self._sess.run(
             [self._q_values, self._bellman_residual], feeds)
-
+            
+        pg_loss = self._sess.run([self._pg_loss], feeds)  # NOTE: check this
+        var = [v for v in tf.trainable_variables() if v.name == "policy_agent_" + str(self._agent_id) + "/layer_1/weight:0"][0]
+        tvars_vals = self._sess.run(var) # tvars_vals[-1][-1]
+        self._tb_writer.add_scalars("bellman_residual",{"Agent" + str(self._agent_id): bellman_residual}, iteration)
+        self._tb_writer.add_scalars("pg_loss",{"Agent" + str(self._agent_id): pg_loss[0]}, iteration)
+        # used to check if variables are being updated
+        #self._tb_writer.add_scalars("random_policy_weight",{"Agent" + str(self._agent_id): tvars_vals[-1][-1]}, iteration)
         logger.record_tabular('qf-avg-agent-{}'.format(self._agent_id), np.mean(qf))
         logger.record_tabular('qf-std-agent-{}'.format(self._agent_id), np.std(qf))
         logger.record_tabular('mean-sq-bellman-error-agent-{}'.format(self._agent_id), bellman_residual)

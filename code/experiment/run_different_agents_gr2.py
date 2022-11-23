@@ -1,6 +1,6 @@
 import numpy as np
 import argparse
-import wandb
+#import wandb
 from maci.learners import MAVBAC, MASQL
 from maci.misc.sampler import MASampler
 from maci.environments import PBeautyGame, MatrixGame
@@ -11,10 +11,9 @@ import datetime
 from copy import deepcopy
 from maci.get_agents import ddpg_agent, masql_agent, pr2ac_agent
 
-from tensorboardX import SummaryWriter
 import maci.misc.tf_utils as U
 import os
-
+from tensorboardX import SummaryWriter
 from keras.backend.tensorflow_backend import set_session
 import tensorflow as tf
 config = tf.ConfigProto()
@@ -47,10 +46,10 @@ def parse_args():
     parser.add_argument('-p', "--p", type=float, default=1.1, help="p")
     parser.add_argument('-mu', "--mu", type=float, default=1.5, help="mu")
     parser.add_argument('-r', "--reward_type", type=str, default="abs", help="reward type")
-    parser.add_argument('-mp', "--max_path_length", type=int, default=1, help="reward type")
-    parser.add_argument('-ms', "--max_steps", type=int, default=10000, help="reward type")
+    parser.add_argument('-mp', "--max_path_length", type=int, default=30, help="reward type")
+    parser.add_argument('-ms', "--max_steps", type=int, default=100000, help="reward type")
     parser.add_argument('-me', "--memory", type=int, default=0, help="reward type")
-    parser.add_argument('-n', "--n", type=int, default=2, help="agent number")
+    parser.add_argument('-n', "--n", type=int, default=2, help="name of the game")
     parser.add_argument('-bs', "--batch_size", type=int, default=64, help="name of the game")
     parser.add_argument('-hm', "--hidden_size", type=int, default=100, help="name of the game")
     parser.add_argument('-re', "--repeat", type=bool, default=False, help="name of the game")
@@ -98,6 +97,7 @@ def main(arglist):
         model_name = model_name + '-{}'.format(arglist.aux)
 
     suffix = '{}/{}/{}/{}'.format(path_prefix, agent_num, model_name, timestamp)
+    tb_suffix = '{}_{}_{}_{}'.format(path_prefix, agent_num, model_name, timestamp)
     print(suffix)
 
     logger.add_tabular_output('./log/{}.csv'.format(suffix))
@@ -106,20 +106,23 @@ def main(arglist):
     os.makedirs(snapshot_dir, exist_ok=True)
     os.makedirs(policy_dir, exist_ok=True)
     logger.set_snapshot_dir(snapshot_dir)
+
+    tb_writer = SummaryWriter('./log/tb_{}'.format(tb_suffix)) # NOTE added
+
     agents = []
     M = arglist.hidden_size
     batch_size = arglist.batch_size
-    sampler = MASampler(agent_num=agent_num, joint=True, max_path_length=30, min_pool_size=100, batch_size=batch_size)
+    sampler = MASampler(tb_writer=tb_writer,agent_num=agent_num, joint=True, max_path_length=30, min_pool_size=100, batch_size=batch_size)
 
     base_kwargs = {
         'sampler': sampler,
-        'epoch_length': 1,
+        'epoch_length': arglist.max_path_length,
         'n_epochs': arglist.max_steps,
         'n_train_repeat': 1,
         'eval_render': True,
         'eval_n_episodes': 10
     }
-    wandb.init(project="MARL_GR2",config=arglist)
+    
     with U.single_threaded_session():
         for i, model_name in enumerate(model_names):
             if 'PR2AC' in model_name:
@@ -128,9 +131,9 @@ def main(arglist):
                 mu = arglist.mu
                 if 'G' in model_name:
                     g = True
-                agent = pr2ac_agent(model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux)
+                agent = pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux)
             elif model_name == 'MASQL':
-                agent = masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
+                agent = masql_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
             else:
                 if model_name == 'DDPG':
                     joint = False
@@ -141,12 +144,11 @@ def main(arglist):
                 elif model_name == 'DDPG-OM' or model_name == 'DDPG-ToM':
                     joint = True
                     opponent_modelling = True
-                agent = ddpg_agent(joint, opponent_modelling, model_names, i, env, M, u_range, base_kwargs, game_name=game_name)
+                agent = ddpg_agent(tb_writer ,joint, opponent_modelling, model_names, i, env, M, u_range, base_kwargs, game_name=game_name)
 
             agents.append(agent)
 
         sampler.initialize(env, agents)
-
         for agent in agents:
             agent._init_training()
         gt.rename_root('MARLAlgorithm')
@@ -154,7 +156,7 @@ def main(arglist):
         gt.set_def_unique(False)
         initial_exploration_done = False
         # noise = .1
-        noise = 1.
+        noise = 0.1
         alpha = .5
 
 
@@ -171,7 +173,7 @@ def main(arglist):
             for t in range(base_kwargs['epoch_length']):
                 # TODO.code consolidation: Add control interval to sampler
                 if not initial_exploration_done:
-                    if epoch >= 1000:
+                    if epoch >= 1000/arglist.max_path_length: # NOTE: change?
                         initial_exploration_done = True
                 sampler.sample()
                 # print('Sampling')

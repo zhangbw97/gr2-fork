@@ -9,7 +9,7 @@ from maci.policies.deterministic_policy import DeterministicNNPolicy, Conditiona
 from maci.policies.uniform_policy import UniformPolicy
 from maci.policies.level_k_policy import MultiLevelPolicy, GeneralizedMultiLevelPolicy
 
-def masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name='matrix'):
+def masql_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, game_name='matrix'):
     joint = True
     squash = True
     squash_func = tf.tanh
@@ -38,6 +38,7 @@ def masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name='matrix')
         qf=qf,
         target_qf=target_qf,
         policy=policy,
+        tb_writer=tb_writer,
         plotter=plotter,
         policy_lr=3e-4,
         qf_lr=3e-4,
@@ -95,7 +96,7 @@ def get_level_k_policy(env, k, M, agent_id, u_range, opponent_conditional_policy
     return k_policy, target_k_policy
 
 
-def pr2ac_agent(model_name, i, env, M, u_range, base_kwargs, k=0, g=False, mu=1.5, game_name='matrix', aux=True):
+def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=False, mu=1.5, game_name='matrix', aux=True):
     joint = False
     squash = True
     squash_func = tf.tanh
@@ -161,6 +162,7 @@ def pr2ac_agent(model_name, i, env, M, u_range, base_kwargs, k=0, g=False, mu=1.
         target_policy=target_policy,
         conditional_policy=opponent_conditional_policy,
         plotter=plotter,
+        tb_writer=tb_writer,
         policy_lr=3e-4,
         qf_lr=3e-4,
         joint=False,
@@ -178,7 +180,7 @@ def pr2ac_agent(model_name, i, env, M, u_range, base_kwargs, k=0, g=False, mu=1.
     return agent
 
 
-def ddpg_agent(joint, opponent_modelling, model_name, i, env, M, u_range, base_kwargs, game_name='matrix'):
+def ddpg_agent(tb_writer,joint, opponent_modelling, model_name, i, env, M, u_range, base_kwargs, game_name='matrix'):
     # joint = True
     # opponent_modelling = False
     print(model_name)
@@ -235,6 +237,7 @@ def ddpg_agent(joint, opponent_modelling, model_name, i, env, M, u_range, base_k
     agent = MADDPG(
         base_kwargs=base_kwargs,
         agent_id=i,
+        tb_writer=tb_writer,
         env=env,
         pool=pool,
         qf=qf,

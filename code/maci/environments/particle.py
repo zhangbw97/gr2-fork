@@ -2,6 +2,8 @@ import gym
 from gym import spaces
 from gym.envs.registration import EnvSpec
 import numpy as np
+import sys
+sys.path.insert(1,"/home/bowen/marl_ws/multiagent-particle-envs")
 from multiagent.multi_discrete import MultiDiscrete
 from maci.misc.space import MADiscrete, MABox
 from maci.environments.env_spec import MAEnvSpec
