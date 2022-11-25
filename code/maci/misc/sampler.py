@@ -168,7 +168,7 @@ class MASampler(SimpleSampler):
         self.env = None
         self.agents = None
         self._tb_writer = tb_writer
-        self._val_at_risk = 0
+        self._val_at_risk = -1.6 # VaR_0.05 for standard normal distribution
     def set_policy(self, policies):
         for agent, policy in zip(self.agents, policies):
             agent.policy = policy
@@ -208,23 +208,28 @@ class MASampler(SimpleSampler):
         self.env.render()
         for i, agent in enumerate(self.agents):
             action = deepcopy(action_n[i])
-            if reward_n[i]<= self._val_at_risk:
-                if agent.pool.joint:
-                    opponent_action = deepcopy(action_n)
-                    del opponent_action[i]
-                    opponent_action = np.array(opponent_action).flatten()
-                    agent.pool.add_sample(observation=self._current_observation_n[i],
-                                        action=action,
-                                        reward=reward_n[i],
-                                        terminal=done_n[i],
-                                        next_observation=next_observation_n[i],
-                                        opponent_action=opponent_action)
-                else:
-                    agent.pool.add_sample(observation=self._current_observation_n[i],
-                                        action=action,
-                                        reward=reward_n[i],
-                                        terminal=done_n[i],
-                                        next_observation=next_observation_n[i])
+            noise_var = 1.0
+            while 1:
+                noise = np.random.normal(0.0,noise_var)
+                if noise <= self._val_at_risk:
+                    break
+            reward_n[i] += noise
+            if agent.pool.joint:
+                opponent_action = deepcopy(action_n)
+                del opponent_action[i]
+                opponent_action = np.array(opponent_action).flatten()
+                agent.pool.add_sample(observation=self._current_observation_n[i],
+                                    action=action,
+                                    reward=reward_n[i],
+                                    terminal=done_n[i],
+                                    next_observation=next_observation_n[i],
+                                    opponent_action=opponent_action)
+            else:
+                agent.pool.add_sample(observation=self._current_observation_n[i],
+                                    action=action,
+                                    reward=reward_n[i],
+                                    terminal=done_n[i],
+                                    next_observation=next_observation_n[i])
 
         if np.all(done_n) or self._path_length >= self._max_path_length:
             self._current_observation_n = self.env.reset()

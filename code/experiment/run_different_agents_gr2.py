@@ -295,7 +295,7 @@ def main(arglist):
 
             # sampler.log_diagnostics()
 
-            # logger.dump_tabular(with_prefix=False)
+            logger.dump_tabular(with_prefix=False)
             logger.pop_prefix()
             sampler.terminate()
 
