@@ -16,6 +16,7 @@ def rollout(env, policy, path_length, render=False, speedup=None):
     actions = np.zeros((path_length, Da))
     terminals = np.zeros((path_length, ))
     rewards = np.zeros((path_length, ))
+    safety_costs = np.zeros((path_length, ))
     agent_infos = []
     env_infos = []
 
@@ -23,7 +24,7 @@ def rollout(env, policy, path_length, render=False, speedup=None):
     for t in range(path_length):
 
         action, agent_info = policy.get_action(observation)
-        next_obs, reward, terminal, env_info = env.step(action)
+        next_obs, reward, safety_cost, terminal, env_info = env.step(action)
 
         agent_infos.append(agent_info)
         env_infos.append(env_info)
@@ -31,6 +32,7 @@ def rollout(env, policy, path_length, render=False, speedup=None):
         actions[t] = action
         terminals[t] = terminal
         rewards[t] = reward
+        safety_costs[t] = safety_cost
         observations[t] = observation
 
         observation = next_obs
@@ -49,6 +51,7 @@ def rollout(env, policy, path_length, render=False, speedup=None):
         'observations': observations[:t + 1],
         'actions': actions[:t + 1],
         'rewards': rewards[:t + 1],
+        'safety_costs':safety_costs[:t + 1],
         'terminals': terminals[:t + 1],
         'next_observations': observations[1:t + 2],
         'agent_infos': agent_infos,
@@ -68,7 +71,7 @@ def rollouts(env, policy, path_length, n_paths):
 
 
 class Sampler(object):
-    def __init__(self, max_path_length, min_pool_size, batch_size):
+    def __init__(self, max_path_length, min_pool_size, batch_size, logging):
         self._max_path_length = max_path_length
         self._min_pool_size = min_pool_size
         self._batch_size = batch_size
@@ -76,7 +79,7 @@ class Sampler(object):
         self.env = None
         self.policy = None
         self.pool = None
-
+        self._logging = logging
     def initialize(self, env, policy, pool):
         self.env = env
         self.policy = policy
@@ -105,7 +108,6 @@ class Sampler(object):
 class SimpleSampler(Sampler):
     def __init__(self, **kwargs):
         super(SimpleSampler, self).__init__(**kwargs)
-
         self._path_length = 0
         self._path_return = 0
         self._last_path_return = 0
@@ -113,21 +115,23 @@ class SimpleSampler(Sampler):
         self._n_episodes = 0
         self._current_observation = None
         self._total_samples = 0
-
+        
     def sample(self):
         if self._current_observation is None:
             self._current_observation = self.env.reset()
 
         action, _ = self.policy.get_action(self._current_observation)
-        next_observation, reward, terminal, info = self.env.step(action)
+        next_observation, reward, safety_cost, terminal, info = self.env.step(action)
         self._path_length += 1
-        self._path_return += reward
+        # separate reward and safety cost, but consider return together
+        self._path_return += reward - safety_cost
         self._total_samples += 1
 
         self.pool.add_sample(
             observation=self._current_observation,
             action=action,
             reward=reward,
+            safety_cost=safety_cost,
             terminal=terminal,
             next_observation=next_observation)
 
@@ -154,7 +158,7 @@ class SimpleSampler(Sampler):
 
 
 class MASampler(SimpleSampler):
-    def __init__(self, tb_writer, agent_num, joint, **kwargs):
+    def __init__(self, tb_writer, agent_num, joint, safety_bound, **kwargs):
         super(SimpleSampler, self).__init__(**kwargs)
         self.agent_num = agent_num
         self.joint = joint
@@ -162,13 +166,15 @@ class MASampler(SimpleSampler):
         self._path_return = np.array([0.] * self.agent_num, dtype=np.float32)
         self._last_path_return = np.array([0.] * self.agent_num, dtype=np.float32)
         self._max_path_return = np.array([-np.inf] * self.agent_num, dtype=np.float32)
+        self._path_collision_num = np.array([0], dtype=np.float32)
         self._n_episodes = 0
         self._total_samples = 0
         self._current_observation_n = None
         self.env = None
         self.agents = None
+        self._safety_bound = safety_bound
         self._tb_writer = tb_writer
-        self._val_at_risk = -1.6 # VaR_0.05 for standard normal distribution
+        #self._val_at_risk = -1.6 # VaR_0.05 for standard normal distribution
     def set_policy(self, policies):
         for agent, policy in zip(self.agents, policies):
             agent.policy = policy
@@ -185,7 +191,7 @@ class MASampler(SimpleSampler):
         self.env = env
         self.agents = agents
 
-    def sample(self):
+    def sample(self) -> bool:
         """
         1. get action and step forward
         2. add transition into replay buffer
@@ -193,15 +199,21 @@ class MASampler(SimpleSampler):
         if self._current_observation_n is None:
             self._current_observation_n = self.env.reset()
         action_n = []
+        safety_q_n = []
         for agent, current_observation in zip(self.agents, self._current_observation_n):
             action, _ = agent.policy.get_action(current_observation)
             if agent.joint_policy:
                 action_n.append(np.array(action)[0:agent._action_dim])
             else:
                 action_n.append(np.array(action))
-        next_observation_n, reward_n, done_n, info = self.env.step(action_n)
+        for i, (agent, current_observation) in enumerate(zip(self.agents, self._current_observation_n)):
+            safety_q = agent.safe_joint_qf.eval(np.array(current_observation,dtype=np.float32).reshape(1,-1),np.array(action_n[i]).reshape(1,-1),np.array(action_n[1-i]).reshape(1,-1))
+            safety_q_n.append(np.array(safety_q))
+        next_observation_n, reward_n, safety_cost_n, done_n, info = self.env.step(action_n)
+        
         self._path_length += 1
-        self._path_return += np.array(reward_n, dtype=np.float32)
+        self._path_return += np.array(reward_n, dtype=np.float32) - np.array(safety_cost_n, dtype=np.float32) 
+        self._path_collision_num += safety_cost_n[0]
         
         #self._mean_reward = (self._mean_reward * self._total_samples + np.sum(reward_n)) / (self._total_samples + len(reward_n))
         self._total_samples += 1
@@ -209,11 +221,12 @@ class MASampler(SimpleSampler):
         for i, agent in enumerate(self.agents):
             action = deepcopy(action_n[i])
             noise_var = 1.0
-            while 1:
-                noise = np.random.normal(0.0,noise_var)
-                if noise <= self._val_at_risk:
-                    break
+            noise = np.random.normal(0.0,noise_var)
+
             reward_n[i] += noise
+            if safety_q_n[i] > self._safety_bound:
+                #reward_n[i] -= 1000
+                continue
             if agent.pool.joint:
                 opponent_action = deepcopy(action_n)
                 del opponent_action[i]
@@ -221,6 +234,7 @@ class MASampler(SimpleSampler):
                 agent.pool.add_sample(observation=self._current_observation_n[i],
                                     action=action,
                                     reward=reward_n[i],
+                                    safety_cost=safety_cost_n[i],
                                     terminal=done_n[i],
                                     next_observation=next_observation_n[i],
                                     opponent_action=opponent_action)
@@ -228,6 +242,7 @@ class MASampler(SimpleSampler):
                 agent.pool.add_sample(observation=self._current_observation_n[i],
                                     action=action,
                                     reward=reward_n[i],
+                                    safety_cost=safety_cost_n[i],
                                     terminal=done_n[i],
                                     next_observation=next_observation_n[i])
 
@@ -235,11 +250,13 @@ class MASampler(SimpleSampler):
             self._current_observation_n = self.env.reset()
             self._max_path_return = np.maximum(self._max_path_return, self._path_return)
             self._mean_path_return = self._path_return / self._path_length
+            self._mean_path_collision_num = self._path_collision_num / self._path_length
             self._last_path_return = self._path_return
 
             self._path_length = 0
 
             self._path_return = np.array([0.] * self.agent_num, dtype=np.float32)
+            self._path_collision_num = np.array([0.], dtype=np.float32)
             self._n_episodes += 1
 
             self.log_diagnostics()
@@ -250,11 +267,14 @@ class MASampler(SimpleSampler):
 
     def log_diagnostics(self):
         for i in range(self.agent_num):
-            self._tb_writer.add_scalars("max-path-return_agent_" + str(i),{"Agent" + str(i): self._max_path_return[i]}, self._total_samples)
-            self._tb_writer.add_scalars("mean-path-return_agent_" + str(i),{"Agent" + str(i): self._mean_path_return[i]}, self._total_samples)
+            if self._logging and self._tb_writer is not None:
+                self._tb_writer.add_scalars("max-path-return_agent_" + str(i),{"Agent" + str(i): self._max_path_return[i]}, self._total_samples)
+                self._tb_writer.add_scalars("mean-path-return_agent_" + str(i),{"Agent" + str(i): self._mean_path_return[i]}, self._total_samples)
+                self._tb_writer.add_scalars("mean-path-collision_num" ,{"mean-path-collision_num" : self._mean_path_collision_num}, self._total_samples)
             logger.record_tabular('max-path-return_agent_{}'.format(i), self._max_path_return[i])
             logger.record_tabular('mean-path-return_agent_{}'.format(i), self._mean_path_return[i])
             logger.record_tabular('last-path-return_agent_{}'.format(i), self._last_path_return[i])
+            logger.record_tabular('mean-path-collision_num', self._mean_path_collision_num)
         logger.record_tabular('episodes', self._n_episodes)
         logger.record_tabular('total-samples', self._total_samples)
         # log_dict = {}

@@ -20,9 +20,9 @@ def make_particle_env(game_name, benchmark=False):
     world = scenario.make_world()
     # create multiagent environment
     if benchmark:
-        env = ParticleEnv(world, scenario.reset_world, scenario.reward, scenario.observation, scenario.benchmark_data)
+        env = ParticleEnv(world, scenario.reset_world, scenario.reward, scenario.safety_cost, scenario.observation, scenario.benchmark_data)
     else:
-        env = ParticleEnv(world, scenario.reset_world, scenario.reward, scenario.observation)
+        env = ParticleEnv(world, scenario.reset_world, scenario.reward, scenario.safety_cost, scenario.observation)
     return env
 
 
@@ -31,7 +31,7 @@ class ParticleEnv(gym.Env):
         'render.modes' : ['human', 'rgb_array']
     }
 
-    def __init__(self, world, reset_callback=None, reward_callback=None,
+    def __init__(self, world, reset_callback=None, reward_callback=None, safety_cost_callback=None,
                  observation_callback=None, info_callback=None,
                  done_callback=None, shared_viewer=True):
 
@@ -42,6 +42,7 @@ class ParticleEnv(gym.Env):
         # scenario callbacks
         self.reset_callback = reset_callback
         self.reward_callback = reward_callback
+        self.safety_cost_callback = safety_cost_callback
         self.observation_callback = observation_callback
         self.info_callback = info_callback
         self.done_callback = done_callback
@@ -51,7 +52,7 @@ class ParticleEnv(gym.Env):
         self.discrete_action_input = False
         # if true, even the action is continuous, action will be performed discretely
         self.force_discrete_action = world.discrete_action if hasattr(world, 'discrete_action') else False
-        # if true, every agent has the same reward
+        # if true, every agent has the same reward and safety cost
         self.shared_reward = world.collaborative if hasattr(world, 'collaborative') else False
         self.time = 0
 
@@ -120,6 +121,7 @@ class ParticleEnv(gym.Env):
     def step(self, action_n):
         obs_n = []
         reward_n = []
+        safety_cost_n = []
         done_n = []
         info_n = {'n': []}
         self.agents = self.world.policy_agents
@@ -133,6 +135,7 @@ class ParticleEnv(gym.Env):
         for agent in self.agents:
             obs_n.append(self._get_obs(agent))
             reward_n.append(self._get_reward(agent))
+            safety_cost_n.append(self._get_safety_cost(agent))
             done_n.append(self._get_done(agent))
 
             info_n['n'].append(self._get_info(agent))
@@ -142,7 +145,7 @@ class ParticleEnv(gym.Env):
         if self.shared_reward:
             reward_n = [reward] * self.n
 
-        return obs_n, reward_n, done_n, info_n
+        return obs_n, reward_n, safety_cost_n, done_n, info_n
 
     def reset(self):
         # reset world
@@ -183,7 +186,11 @@ class ParticleEnv(gym.Env):
         if self.reward_callback is None:
             return 0.0
         return self.reward_callback(agent, self.world)
-
+    # get safety_cost for a particular agent
+    def _get_safety_cost(self, agent):
+        if self.safety_cost_callback is None:
+            return 0.0
+        return self.safety_cost_callback(agent, self.world)
     # set env action for a particular agent
     def _set_action(self, action, agent, action_space, time=None):
         agent.action.u = np.zeros(self.world.dim_p)
@@ -353,17 +360,19 @@ class BatchMultiAgentEnv(gym.Env):
     def step(self, action_n, time):
         obs_n = []
         reward_n = []
+        safety_cost_n = []
         done_n = []
         info_n = {'n': []}
         i = 0
         for env in self.env_batch:
-            obs, reward, done, _ = env.step(action_n[i:(i+env.n)], time)
+            obs, reward, safety_cost, done, _ = env.step(action_n[i:(i+env.n)], time)
             i += env.n
             obs_n += obs
             # reward = [r / len(self.env_batch) for r in reward]
             reward_n += reward
+            safety_cost_n += safety_cost
             done_n += done
-        return obs_n, reward_n, done_n, info_n
+        return obs_n, reward_n, safety_cost, done_n, info_n
 
     def reset(self):
         obs_n = []

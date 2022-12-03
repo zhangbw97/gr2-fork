@@ -38,6 +38,8 @@ class MultiLevelPolicy(NNPolicy, Serializable):
         return all_actions
 
     def actions_for(self, observations, reuse=True, all_action=False):
+        # rollout level k actions,
+        # returns highest level action or actions in all levels 
         all_actions = []
         action = None
         for i in range(self._k + 1):

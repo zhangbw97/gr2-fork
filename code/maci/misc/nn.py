@@ -15,7 +15,10 @@ def feedforward_net(inputs,
             name='bias', shape=n_units, initializer=tf.zeros_initializer())
 
     def linear(x, n_units, postfix=None):
-        input_size = x.shape[-1].value
+        try:
+            input_size = x.shape[-1].value
+        except:
+            input_size = x.shape[-1]
         weight_name = 'weight' + '_' + str(postfix) if postfix else 'weight'
         weight = tf.get_variable(
             name=weight_name,

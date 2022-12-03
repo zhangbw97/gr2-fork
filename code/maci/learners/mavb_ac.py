@@ -26,12 +26,15 @@ class MAVBAC(MARLAlgorithm):
             env,
             pool,
             joint_qf,
+            safe_joint_qf,
             target_joint_qf,
+            target_safe_joint_qf,
             qf,
             policy,
             target_policy,
             conditional_policy,
             tb_writer,
+            logging,
             plotter=None,
             policy_lr=1E-3,
             qf_lr=1E-3,
@@ -42,11 +45,14 @@ class MAVBAC(MARLAlgorithm):
             kernel_n_particles=16,
             kernel_update_ratio=0.5,
             discount=0.99,
+            safety_discount=0.7,
             reward_scale=1,
+            safety_cost_scale=1,
             use_saved_qf=False,
             use_saved_policy=False,
             save_full_state=False,
             train_qf=True,
+            train_safe_qf=True,
             train_policy=True,
             joint=False,
             joint_policy=False,
@@ -55,13 +61,15 @@ class MAVBAC(MARLAlgorithm):
             k=0,
             aux=True
     ):
-        super(MAVBAC, self).__init__(**base_kwargs)
+        super(MAVBAC, self).__init__(**base_kwargs,logging=logging)
 
         self._env = env
         self._pool = pool
         self.qf = qf
         self.joint_qf = joint_qf
+        self.safe_joint_qf = safe_joint_qf
         self.target_joint_qf = target_joint_qf
+        self.target_safe_joint_qf=target_safe_joint_qf
         self._policy = policy
         self._target_policy = target_policy
         self._conditional_policy = conditional_policy
@@ -73,15 +81,16 @@ class MAVBAC(MARLAlgorithm):
         self.opponent_action_range_normalize = opponent_action_range_normalize
         self._k = k
         self._aux = aux
-
+        self._logging = logging
         self._agent_id = agent_id
 
         self._tau = tau
         self._qf_lr = qf_lr
         self._policy_lr = policy_lr
         self._discount = discount
+        self._safety_discount = safety_discount
         self._reward_scale = reward_scale
-
+        self._safety_cost_scale = safety_cost_scale
         self._value_n_particles = value_n_particles
         self._qf_target_update_interval = td_target_update_interval
 
@@ -91,6 +100,7 @@ class MAVBAC(MARLAlgorithm):
 
         self._save_full_state = save_full_state
         self._train_qf = train_qf
+        self._train_safe_qf = train_safe_qf
         self._train_policy = train_policy
 
         self._observation_dim = self.env.observation_spaces[self._agent_id].flat_dim
@@ -147,6 +157,9 @@ class MAVBAC(MARLAlgorithm):
         self._rewards_pl = tf.placeholder(
             tf.float32, shape=[None],
             name='rewards_agent_{}'.format(self._agent_id))
+        self._safety_costs_pl = tf.placeholder(
+            tf.float32, shape=[None],
+            name='safety_costs_agent_{}'.format(self._agent_id))
         self._terminals_pl = tf.placeholder(
             tf.float32, shape=[None],
             name='terminals_agent_{}'.format(self._agent_id))
@@ -166,30 +179,71 @@ class MAVBAC(MARLAlgorithm):
                 opponent_target_actions = tf.random_uniform(
                     (1, self._value_n_particles, self._opponent_action_dim), *self._env.action_range)
                 if self.opponent_action_range_normalize:
-                    opponent_target_actions = tf.nn.softmax(opponent_target_actions, axis=-1)
+                    opponent_target_actions = tf.nn.softmax(opponent_target_actions, axis=1)
+
+            # next step Q（s',a'^i,a'^-i)
             q_value_targets = self.target_joint_qf.output_for(
                 observations=self._next_observations_ph[:, None, :],
                 actions=self._next_actions_ph[:, None, :],
                 opponent_actions=opponent_target_actions)
             assert_shape(q_value_targets, [None, self._value_n_particles])
 
+            # safe_q_value_targets = self.target_safe_joint_qf.output_for(
+            #     observations=self._next_observations_ph[:, None, :],
+            #     actions=self._next_actions_ph[:, None, :],
+            #     opponent_actions=opponent_target_actions)
+        opponent_target_actions =  self._conditional_policy.actions_for(
+            observations=self._next_observations_ph,
+            actions=self._next_actions_ph,
+            n_action_samples=self._value_n_particles,
+            reuse=True)
+        print(opponent_target_actions.shape.as_list(), [None, self._value_n_particles, self._opponent_action_dim])
+        assert_shape(opponent_target_actions,
+                     [None, self._value_n_particles, self._opponent_action_dim])
+        safe_q_value_targets = self.target_safe_joint_qf.output_for(
+            observations=self._next_observations_ph[:, None, :],
+            actions=self._next_actions_ph[:, None, :],
+            opponent_actions=opponent_target_actions)
+        # safe_q_value_targets = tf.squeeze(safe_q_value_targets)
+        assert_shape(safe_q_value_targets, [None, self._value_n_particles])
+ 
+        # Q(s,a^i,a^-i)
+        # ph pl区别？
         self._q_values = self.joint_qf.output_for(
             self._observations_ph, self._actions_pl, self._opponent_actions_pl, reuse=True)
         assert_shape(self._q_values, [None])
+   
+        self._safe_q_values = self.safe_joint_qf.output_for(
+            self._observations_ph, self._actions_pl, self._opponent_actions_pl, reuse=True)
+        assert_shape(self._safe_q_values, [None]) 
 
+        # Q_soft(s,a^i)=alpha*logsumexp(Q_soft(s,a^i,a^-i)/alpha); alpha:annealing; sum over opponent actions
+        # next_value： Q_soft(s,a^i)
         next_value = self._annealing_pl * tf.reduce_logsumexp(q_value_targets / self._annealing_pl, axis=1)
 
         assert_shape(next_value, [None])
+        ############################### ATTENTION #########################################
+        next_value -= tf.log(tf.cast(self._value_n_particles, tf.float32))  
+        next_value += (self._opponent_action_dim) * np.log(2) # alpha*logsumexp(Q_soft(s,a)/alpha)+(-log16 + const * log2)?
 
-        next_value -= tf.log(tf.cast(self._value_n_particles, tf.float32))
-        next_value += (self._opponent_action_dim) * np.log(2)
-
-
+        # target Q function 
         ys = tf.stop_gradient(self._reward_scale * self._rewards_pl + (
             1 - self._terminals_pl) * self._discount * next_value)
         assert_shape(ys, [None])
 
         bellman_residual = 0.5 * tf.reduce_mean((ys - self._q_values)**2)
+
+        # next_safe_value = self._annealing_pl * tf.reduce_logsumexp(safe_q_value_targets / self._annealing_pl, axis=1)
+        # assert_shape(next_safe_value, [None])
+        # next_safe_value -= tf.log(tf.cast(self._value_n_particles, tf.float32))  
+        # next_safe_value += (self._opponent_action_dim) * np.log(2)
+
+        safety_ys = tf.stop_gradient(self._safety_cost_scale * self._safety_costs_pl + (
+            1 - self._terminals_pl) * (1 - self._safety_costs_pl) *
+            self._safety_discount *tf.reduce_mean(safe_q_value_targets))
+        assert_shape(safety_ys, [None])
+        safety_bellman_residual = 0.5 * tf.reduce_mean((safety_ys - self._safe_q_values)**2)
+
         with tf.variable_scope('target_joint_qf_opt_agent_{}'.format(self._agent_id), reuse=tf.AUTO_REUSE):
             if self._train_qf:
                 td_train_op = tf.train.AdamOptimizer(self._qf_lr).minimize(
@@ -198,7 +252,15 @@ class MAVBAC(MARLAlgorithm):
 
         self._bellman_residual = bellman_residual
 
+        with tf.variable_scope('target_safe_joint_qf_opt_agent_{}'.format(self._agent_id), reuse=tf.AUTO_REUSE):
+            if self._train_safe_qf:
+                safe_q_train_op = tf.train.AdamOptimizer(self._qf_lr).minimize(
+                    loss=safety_bellman_residual, var_list=self.safe_joint_qf.get_params_internal())
+                self._training_ops.append(safe_q_train_op)
 
+        self._safety_bellman_residual = safety_bellman_residual
+        
+        # Q(s,a^i) individual Q fn?
         self._ind_q_values = self.qf.output_for(self._observations_ph, self._actions_pl, reuse=True)
         assert_shape(self._ind_q_values, [None])
         ind_bellman_residual = 0.5 * tf.reduce_mean((ys - self._ind_q_values) ** 2)
@@ -208,7 +270,7 @@ class MAVBAC(MARLAlgorithm):
                     loss=ind_bellman_residual, var_list=self.qf.get_params_internal())
                 self._training_ops.append(ind_q_train_op)
 
-        self._ind_bellman_residual = ind_bellman_residual
+        self._ind_bellman_residual = ind_bellman_residual   
 
     def _create_p_update(self):
         """Create a minimization operation for policy update """
@@ -238,7 +300,7 @@ class MAVBAC(MARLAlgorithm):
 
         assert_shape(opponent_target_actions,
                      [None, self._value_n_particles, self._opponent_action_dim])
-
+        # why next observation?
         q_targets = self.joint_qf.output_for(
             observations=self._next_observations_ph[:, None, :],
             actions=self_actions[:, None, :],
@@ -252,7 +314,7 @@ class MAVBAC(MARLAlgorithm):
         q_targets -= tf.log(tf.cast(self._value_n_particles, tf.float32))
         q_targets += (self._opponent_action_dim) * np.log(2)
         pg_loss = -tf.reduce_mean(q_targets)
-
+        # auxiliary loss
         if self._aux:
             # only works for k = 2, 3
             if self._k > 1:
@@ -376,21 +438,38 @@ class MAVBAC(MARLAlgorithm):
 
     def _create_target_ops(self):
         """Create tensorflow operation for updating the target Q-function."""
+        # 1. update target network less frequently
+        # 2. use tau<1 
+        # aim: stablize training process
+        # target update顺序是否不重要 Q - SQ - P?
         if not self._train_qf:
             return
 
         source_q_params = self.joint_qf.get_params_internal()
         target_q_params = self.target_joint_qf.get_params_internal()
+        source_sq_params = self.safe_joint_qf.get_params_internal()
+        target_sq_params = self.target_safe_joint_qf.get_params_internal()
         source_p_params = self._policy.get_params_internal()
         target_p_params = self._target_policy.get_params_internal()
-
-        self._target_ops = [
-                               tf.assign(target, (1 - self._tau) * target + self._tau * source)
-                               for target, source in zip(target_q_params, source_q_params)
-                           ] + [
-                               tf.assign(target, (1 - self._tau) * target + self._tau * source)
-                               for target, source in zip(target_p_params, source_p_params)
-                           ]
+        target_p_op = [tf.assign(target, (1 - self._tau) * target + self._tau * source)
+                               for target, source in zip(target_p_params, source_p_params)]
+                           
+        target_q_op = [tf.assign(target, (1 - self._tau) * target + self._tau * source)
+                               for target, source in zip(target_q_params, source_q_params)]
+        target_sq_op = [tf.assign(target, (1 - self._tau) * target + self._tau * source)
+                               for target, source in zip(target_sq_params, source_sq_params)]
+                           
+        self._target_ops = target_q_op + target_sq_op + target_p_op
+        # [
+        #                        tf.assign(target, (1 - self._tau) * target + self._tau * source)
+        #                        for target, source in zip(target_q_params, source_q_params)
+        #                    ] + [
+        #                        tf.assign(target, (1 - self._tau) * target + self._tau * source)
+        #                        for target, source in zip(target_p_params, source_p_params)
+        #                    ]+ [
+        #                        tf.assign(target, (1 - self._tau) * target + self._tau * source)
+        #                        for target, source in zip(target_sq_params, source_sq_params)
+        #                    ]
 
     # TODO: do not pass, policy, and pool to `__init__` directly.
     def train(self):
@@ -406,6 +485,7 @@ class MAVBAC(MARLAlgorithm):
 
         feed_dict = self._get_feed_dict(batch, annealing)
         self._sess.run(self._training_ops, feed_dict)
+        # mark qf_target_update_interval, async update of actor and critic
         if iteration % self._qf_target_update_interval == 0 and self._train_qf:
             self._sess.run(self._target_ops)
         self.log_diagnostics(iteration,batch,annealing)  
@@ -417,9 +497,10 @@ class MAVBAC(MARLAlgorithm):
             self._actions_pl: batch['actions'],
             self._opponent_actions_pl: batch['opponent_actions'],
             self._next_actions_ph: batch['next_actions'],
-            # self._opponent_next_actions_ph: batch['opponent_next_actions'],
+            #self._opponent_next_actions_ph: batch['opponent_next_actions'],
             self._next_observations_ph: batch['next_observations'],
             self._rewards_pl: batch['rewards'],
+            self._safety_costs_pl: batch['safety_costs'],
             self._terminals_pl: batch['terminals'],
             self._annealing_pl: annealing
         }
@@ -436,13 +517,19 @@ class MAVBAC(MARLAlgorithm):
         """
 
         feeds = self._get_feed_dict(batch,annealing)
-        qf, bellman_residual = self._sess.run(
-            [self._q_values, self._bellman_residual], feeds)
-        self._tb_writer.add_scalars("bellman_residual",{"Agent" + str(self._agent_id): bellman_residual}, iteration)
-        
+        qf, bellman_residual,safe_q_values,safety_bellman_residual = self._sess.run(
+            [self._q_values, self._bellman_residual, self._safe_q_values, self._safety_bellman_residual], feeds)
+        if self._logging and self._tb_writer is not None:
+            self._tb_writer.add_scalars("qf-avg-agent",{"Agent" + str(self._agent_id): np.mean(qf)}, iteration)
+            self._tb_writer.add_scalars("bellman_residual",{"Agent" + str(self._agent_id): bellman_residual}, iteration)
+            self._tb_writer.add_scalars("safe-qf-avg",{ "Agent" + str(self._agent_id): np.mean(safe_q_values)}, iteration)
+            self._tb_writer.add_scalars("safety_bellman_residual",{"Agent" + str(self._agent_id): np.mean(safety_bellman_residual)}, iteration)
         logger.record_tabular('qf-avg-agent-{}'.format(self._agent_id), np.mean(qf))
         logger.record_tabular('qf-std-agent-{}'.format(self._agent_id), np.std(qf))
+        logger.record_tabular('safe-qf-avg', np.mean(safe_q_values))
+        logger.record_tabular('safe-qf-std', np.std(safe_q_values))
         logger.record_tabular('mean-sq-bellman-error-agent-{}'.format(self._agent_id), bellman_residual)
+        logger.record_tabular('mean-sq-safety-bellman-error-agent-{}'.format(self._agent_id), safety_bellman_residual)
 
         self.policy.log_diagnostics(batch)
         if self.plotter:

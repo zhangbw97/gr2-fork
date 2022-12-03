@@ -1,6 +1,5 @@
 import numpy as np
 import argparse
-#import wandb
 from maci.learners import MAVBAC, MASQL
 from maci.misc.sampler import MASampler
 from maci.environments import PBeautyGame, MatrixGame
@@ -55,6 +54,7 @@ def parse_args():
     parser.add_argument('-re', "--repeat", type=bool, default=False, help="name of the game")
     parser.add_argument('-a', "--aux", type=bool, default=True, help="name of the game")
     parser.add_argument('-m', "--model_names_setting", type=str, default='PR2AC4_PR2AC4', help="models setting agent vs adv")
+    parser.add_argument("--logging-enabled", action="store_true", help="enable logging")
     return parser.parse_args()
 
 
@@ -95,24 +95,24 @@ def main(arglist):
         model_name = model_name + '-{}'.format(arglist.mu)
     if not arglist.aux:
         model_name = model_name + '-{}'.format(arglist.aux)
-
-    suffix = '{}/{}/{}/{}'.format(path_prefix, agent_num, model_name, timestamp)
-    tb_suffix = '{}_{}_{}_{}'.format(path_prefix, agent_num, model_name, timestamp)
+    
+    suffix = 'baseline/{}/{}/{}/{}'.format(path_prefix, agent_num, model_name, timestamp)
+    tb_suffix = 'baseline/{}_{}_{}_{}'.format(path_prefix, agent_num, model_name, timestamp)
     print(suffix)
-
     logger.add_tabular_output('./log/{}.csv'.format(suffix))
     snapshot_dir = './snapshot/{}'.format(suffix)
     policy_dir = './policy/{}'.format(suffix)
     os.makedirs(snapshot_dir, exist_ok=True)
     os.makedirs(policy_dir, exist_ok=True)
     logger.set_snapshot_dir(snapshot_dir)
-
-    tb_writer = SummaryWriter('./log/tb_{}'.format(tb_suffix)) # NOTE added
+    tb_writer = None
+    if arglist.logging_enabled:
+        tb_writer = SummaryWriter('./log/tb_{}'.format(tb_suffix)) # NOTE added
 
     agents = []
     M = arglist.hidden_size
     batch_size = arglist.batch_size
-    sampler = MASampler(tb_writer=tb_writer,agent_num=agent_num, joint=True, max_path_length=30, min_pool_size=100, batch_size=batch_size)
+    sampler = MASampler(tb_writer=tb_writer ,agent_num=agent_num, joint=True, safety_bound = 0.05, max_path_length=30, min_pool_size=100, batch_size=batch_size, logging = arglist.logging_enabled)
 
     base_kwargs = {
         'sampler': sampler,
@@ -131,7 +131,7 @@ def main(arglist):
                 mu = arglist.mu
                 if 'G' in model_name:
                     g = True
-                agent = pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux)
+                agent = pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux,logging=arglist.logging_enabled)
             elif model_name == 'MASQL':
                 agent = masql_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
             else:
@@ -172,6 +172,7 @@ def main(arglist):
                 print(suffix)
             for t in range(base_kwargs['epoch_length']):
                 # TODO.code consolidation: Add control interval to sampler
+                # it only add initial samples to replay buffer?
                 if not initial_exploration_done:
                     if epoch >= 1000/arglist.max_path_length: # NOTE: change?
                         initial_exploration_done = True
@@ -217,17 +218,19 @@ def main(arglist):
                     batch_n = []
                     recent_batch_n = []
                     indices = None
-                    receent_indices = None
+                    recent_indices = None
+                    # extract batch of transitions from replay buffer
                     for i, agent in enumerate(agents):
                         if i == 0:
                             batch = agent.pool.random_batch(batch_size)
                             indices = agent.pool.indices
-                            receent_indices = list(range(agent.pool._top-batch_size, agent.pool._top))
+                            recent_indices = list(range(agent.pool._top-batch_size, agent.pool._top))
 
                         batch_n.append(agent.pool.random_batch_by_indices(indices))
-                        recent_batch_n.append(agent.pool.random_batch_by_indices(receent_indices))
+                        recent_batch_n.append(agent.pool.random_batch_by_indices(recent_indices))
 
                     # print(len(batch_n))
+                    # extend batch of transitions with next actions by applying current policy
                     target_next_actions_n = []
                     try:
                         for agent, batch in zip(agents, batch_n):
@@ -259,6 +262,7 @@ def main(arglist):
                     with open('{}/policy.csv'.format(policy_dir), 'a') as f:
                         f.write(','.join(list(map(str, current_actions)))+'\n')
                     # print('============')
+                    ##################### training ####################
                     for i, agent in enumerate(agents):
                         try:
                             batch_n[i]['next_actions'] = deepcopy(target_next_actions_n[i])
@@ -294,7 +298,6 @@ def main(arglist):
             # logger.record_tabular('epoch', epoch)
 
             # sampler.log_diagnostics()
-
             logger.dump_tabular(with_prefix=False)
             logger.pop_prefix()
             sampler.terminate()

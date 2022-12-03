@@ -220,6 +220,7 @@ class MARLAlgorithm(Algorithm):
     def __init__(
             self,
             sampler,
+            logging,
             n_epochs=1000,
             n_train_repeat=1,
             n_initial_exploration_steps=10000,
@@ -244,7 +245,7 @@ class MARLAlgorithm(Algorithm):
                 environment.
         """
         self.sampler = sampler
-
+        self._logging = logging
         self._n_epochs = int(n_epochs)
         self._n_train_repeat = n_train_repeat
         self._epoch_length = epoch_length

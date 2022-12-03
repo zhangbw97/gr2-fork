@@ -96,7 +96,7 @@ def get_level_k_policy(env, k, M, agent_id, u_range, opponent_conditional_policy
     return k_policy, target_k_policy
 
 
-def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=False, mu=1.5, game_name='matrix', aux=True):
+def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=False, mu=1.5, game_name='matrix', aux=True, logging = False):
     joint = False
     squash = True
     squash_func = tf.tanh
@@ -146,7 +146,10 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
     joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, agent_id=i)
     target_joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_joint_qf',
                                        joint=joint, agent_id=i)
-
+    safe_joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='safe_joint_qf',
+                                       joint=True, agent_id=i)
+    target_safe_joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_safe_joint_qf',
+                                       joint=True, agent_id=i)                                   
     qf = NNQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=False, agent_id=i)
     plotter = None
 
@@ -156,13 +159,16 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         env=env,
         pool=pool,
         joint_qf=joint_qf,
+        safe_joint_qf=safe_joint_qf,
         target_joint_qf=target_joint_qf,
+        target_safe_joint_qf=target_safe_joint_qf,
         qf=qf,
         policy=policy,
         target_policy=target_policy,
         conditional_policy=opponent_conditional_policy,
         plotter=plotter,
         tb_writer=tb_writer,
+        logging=logging,
         policy_lr=3e-4,
         qf_lr=3e-4,
         joint=False,
@@ -172,7 +178,9 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         kernel_update_ratio=0.5,
         td_target_update_interval=5,
         discount=0.99,
+        safety_discount=0.7,
         reward_scale=1,
+        safety_cost_scale=1,
         tau=0.01,
         save_full_state=False,
         k=k,

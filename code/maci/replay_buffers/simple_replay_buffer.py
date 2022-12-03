@@ -37,15 +37,17 @@ class SimpleReplayBuffer(ReplayBuffer, Serializable):
                                    self._observation_dim))
         self._actions = np.zeros((max_replay_buffer_size, self._action_dim))
         self._rewards = np.zeros(max_replay_buffer_size)
+        self._safety_costs = np.zeros(max_replay_buffer_size)
         self._terminals = np.zeros(max_replay_buffer_size, dtype='uint8')
         self._top = 0
         self._size = 0
 
-    def add_sample(self, observation, action, reward, terminal,
+    def add_sample(self, observation, action, reward, safety_cost, terminal,
                    next_observation, **kwargs):
         self._observations[self._top] = observation
         self._actions[self._top] = action
         self._rewards[self._top] = reward
+        self._safety_costs[self._top] = safety_cost
         self._terminals[self._top] = terminal
         self._next_obs[self._top] = next_observation
         if 'opponent_action' in kwargs:
@@ -68,6 +70,7 @@ class SimpleReplayBuffer(ReplayBuffer, Serializable):
             observations=self._observations[self.indices],
             actions=self._actions[self.indices],
             rewards=self._rewards[self.indices],
+            safety_costs=self._safety_costs[self.indices],
             terminals=self._terminals[self.indices],
             next_observations=self._next_obs[self.indices],
         )
@@ -80,6 +83,7 @@ class SimpleReplayBuffer(ReplayBuffer, Serializable):
             observations=self._observations[indices],
             actions=self._actions[indices],
             rewards=self._rewards[indices],
+            safety_costs=self._safety_costs[indices],
             terminals=self._terminals[indices],
             next_observations=self._next_obs[indices],
         )
@@ -97,6 +101,7 @@ class SimpleReplayBuffer(ReplayBuffer, Serializable):
             o=self._observations.tobytes(),
             a=self._actions.tobytes(),
             r=self._rewards.tobytes(),
+            c=self._safety_costs.tobytes(),
             t=self._terminals.tobytes(),
             no=self._next_obs.tobytes(),
             top=self._top,
@@ -116,6 +121,7 @@ class SimpleReplayBuffer(ReplayBuffer, Serializable):
         )
         self._actions = np.fromstring(d['a']).reshape(self._max_buffer_size, -1)
         self._rewards = np.fromstring(d['r']).reshape(self._max_buffer_size)
+        self._safety_costs = np.fromstring(d['s_c']).reshape(self._max_buffer_size)
         self._terminals = np.fromstring(d['t'], dtype=np.uint8)
         self._top = d['top']
         self._size = d['size']
