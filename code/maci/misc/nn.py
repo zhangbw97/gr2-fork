@@ -23,7 +23,7 @@ def feedforward_net(inputs,
         weight = tf.get_variable(
             name=weight_name,
             shape=(input_size, n_units),
-            initializer=tf.contrib.layers.xavier_initializer())
+            initializer=tf.contrib.layers.xavier_initializer(seed=1))
 
         # `tf.tensordot` supports broadcasting
         return tf.tensordot(x, weight, axes=((-1, ), (0, )))

@@ -197,6 +197,7 @@ class ConditionalDeterministicNNPolicy(NNPolicy, Serializable):
             env_spec, self._observation_ph, self._actions, self._name)
 
     def evolve_noise_state(self):
+        # why add noise like this?
         x = self.state
         dx = self.theta * (self.mu - x) + self.sigma * np.random.randn(len(x))
         self.state = x + dx

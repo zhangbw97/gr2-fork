@@ -302,8 +302,9 @@ class MADDPG(MARLAlgorithm):
         pg_loss = self._sess.run([self._pg_loss], feeds)  # NOTE: check this
         var = [v for v in tf.trainable_variables() if v.name == "policy_agent_" + str(self._agent_id) + "/layer_1/weight:0"][0]
         tvars_vals = self._sess.run(var) # tvars_vals[-1][-1]
-        self._tb_writer.add_scalars("bellman_residual",{"Agent" + str(self._agent_id): bellman_residual}, iteration)
-        self._tb_writer.add_scalars("pg_loss",{"Agent" + str(self._agent_id): pg_loss[0]}, iteration)
+        if self._tb_writer is not None:
+            self._tb_writer.add_scalars("bellman_residual",{"Agent" + str(self._agent_id): bellman_residual}, iteration)
+            self._tb_writer.add_scalars("pg_loss",{"Agent" + str(self._agent_id): pg_loss[0]}, iteration)
         # used to check if variables are being updated
         #self._tb_writer.add_scalars("random_policy_weight",{"Agent" + str(self._agent_id): tvars_vals[-1][-1]}, iteration)
         logger.record_tabular('qf-avg-agent-{}'.format(self._agent_id), np.mean(qf))

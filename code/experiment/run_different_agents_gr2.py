@@ -96,10 +96,10 @@ def main(arglist):
     if not arglist.aux:
         model_name = model_name + '-{}'.format(arglist.aux)
     
-    suffix = 'baseline/{}/{}/{}/{}'.format(path_prefix, agent_num, model_name, timestamp)
-    tb_suffix = 'baseline/{}_{}_{}_{}'.format(path_prefix, agent_num, model_name, timestamp)
+    suffix = 'lagrangian/{}/{}/{}/{}'.format(path_prefix, agent_num, model_name, timestamp)
+    tb_suffix = 'lagrangian/{}_{}_{}_{}'.format(path_prefix, agent_num, model_name, timestamp)
     print(suffix)
-    logger.add_tabular_output('./log/{}.csv'.format(suffix))
+    logger.add_tabular_output('./log/no_reward_noise/{}.csv'.format(suffix))
     snapshot_dir = './snapshot/{}'.format(suffix)
     policy_dir = './policy/{}'.format(suffix)
     os.makedirs(snapshot_dir, exist_ok=True)
@@ -107,12 +107,12 @@ def main(arglist):
     logger.set_snapshot_dir(snapshot_dir)
     tb_writer = None
     if arglist.logging_enabled:
-        tb_writer = SummaryWriter('./log/tb_{}'.format(tb_suffix)) # NOTE added
+        tb_writer = SummaryWriter('./log/no_reward_noise/tb_{}'.format(tb_suffix)) # NOTE added
 
     agents = []
     M = arglist.hidden_size
     batch_size = arglist.batch_size
-    sampler = MASampler(tb_writer=tb_writer ,agent_num=agent_num, joint=True, safety_bound = 0.05, max_path_length=30, min_pool_size=100, batch_size=batch_size, logging = arglist.logging_enabled)
+    sampler = MASampler(tb_writer=tb_writer ,agent_num=agent_num, joint=True, max_path_length=arglist.max_path_length, min_pool_size=100, batch_size=batch_size, logging = arglist.logging_enabled)
 
     base_kwargs = {
         'sampler': sampler,
@@ -131,7 +131,7 @@ def main(arglist):
                 mu = arglist.mu
                 if 'G' in model_name:
                     g = True
-                agent = pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux,logging=arglist.logging_enabled)
+                agent = pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux,logging=arglist.logging_enabled,lagrangian=True)
             elif model_name == 'MASQL':
                 agent = masql_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
             else:
@@ -269,6 +269,7 @@ def main(arglist):
                         except:
                             pass
                         batch_n[i]['opponent_actions'] = np.reshape(np.delete(deepcopy(opponent_actions_n), i, 0), (-1, agent._opponent_action_dim))
+                        # joint means centeralized action space
                         if agent.joint:
                             if agent.opponent_modelling:
                                 batch_n[i]['recent_opponent_observations'] = recent_opponent_observations_n[i]

@@ -96,7 +96,7 @@ def get_level_k_policy(env, k, M, agent_id, u_range, opponent_conditional_policy
     return k_policy, target_k_policy
 
 
-def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=False, mu=1.5, game_name='matrix', aux=True, logging = False):
+def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=False, mu=1.5, game_name='matrix', aux=True, logging = False, lagrangian=False):
     joint = False
     squash = True
     squash_func = tf.tanh
@@ -170,6 +170,7 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         tb_writer=tb_writer,
         logging=logging,
         policy_lr=3e-4,
+        beta_lr=3e-4,
         qf_lr=3e-4,
         joint=False,
         value_n_particles=16,
@@ -177,14 +178,16 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         kernel_n_particles=32,
         kernel_update_ratio=0.5,
         td_target_update_interval=5,
+        beta_update_interval = 5,
         discount=0.99,
-        safety_discount=0.7,
+        safety_discount=0.99,
         reward_scale=1,
         safety_cost_scale=1,
         tau=0.01,
         save_full_state=False,
         k=k,
-        aux=aux)
+        aux=aux,
+        lagrangian=lagrangian)
     return agent
 
 
