@@ -1,6 +1,6 @@
 import numpy as np
 import tensorflow as tf
-from experiment.utils import compute_cvar, gaussian_likelihood
+from maci.utils import compute_cvar, gaussian_likelihood
 from maci.misc import logger
 from maci.misc.overrides import overrides
 
@@ -10,7 +10,7 @@ from maci.misc import tf_utils
 from .base import MARLAlgorithm
 
 EPS = 1e-6
-INITIAL_LAMBDA = 5.0
+INITIAL_BETA = 5.0
 
 def get_vars(scope):
     return [x for x in tf.global_variables() if scope in x.name]
@@ -40,7 +40,7 @@ class MAVBAC(MARLAlgorithm):
             logging,
             plotter=None,
             policy_lr=1E-3,
-            beta_lr=1E-4,
+            beta_lr=1E-3,
             qf_lr=1E-3,
             tau=0.01,
             value_n_particles=16,
@@ -68,6 +68,7 @@ class MAVBAC(MARLAlgorithm):
             risk_level=0.1,
             cost_std=0.05,
             max_episode_len=30,
+            damp_scale=10,
             k=0,
             aux=True,
             lagrangian=False
@@ -108,6 +109,7 @@ class MAVBAC(MARLAlgorithm):
         self.max_episode_len=max_episode_len
         self._reward_scale = reward_scale
         self._safety_cost_scale = safety_cost_scale
+        self.damp_scale = damp_scale
         self._fixed_entropy_bonus=fixed_entropy_bonus
         self._value_n_particles = value_n_particles
         self._qf_target_update_interval = td_target_update_interval
@@ -144,7 +146,7 @@ class MAVBAC(MARLAlgorithm):
         if self._lagrangian is True:
             with tf.variable_scope('costpen', reuse=tf.AUTO_REUSE):
                 self.soft_beta = tf.get_variable('soft_beta',
-                                            initializer=0.0,
+                                            initializer=INITIAL_BETA,
                                             trainable=True,
                                             dtype=tf.float32)
             self.beta = tf.nn.softplus(self.soft_beta)
@@ -396,12 +398,12 @@ class MAVBAC(MARLAlgorithm):
             # cvar_safe_q = compute_cvar(self._safe_q_values,risk_level=self._risk_level,std=self._cost_std)
             # #maximize L = f - lambda * g == minimize -L = -f + lambda * g
             # constraint_term = self._lambda * tf.reduce_mean(cvar_safe_q - self._safety_bound)
-            constraint_term = self.beta * tf.reduce_mean(safe_q_target)
+            safety_bound = self._safety_bound * (1 - self._discount ** self.max_episode_len) / (1 - self._discount)/ self.max_episode_len
+            damp = self.damp_scale * tf.reduce_mean(safety_bound - safe_q_target)
+            constraint_term = ( self.beta - damp) * tf.reduce_mean(safe_q_target)
             pg_loss = pg_loss + constraint_term
         
         # todo add level k Q loss:
-
-
         with tf.variable_scope('policy_opt_agent_{}'.format(self._agent_id), reuse=tf.AUTO_REUSE):
             if self._train_policy:
                 optimizer = tf.train.AdamOptimizer(self._policy_lr)
@@ -595,17 +597,17 @@ class MAVBAC(MARLAlgorithm):
             self._tb_writer.add_scalars("safe-qf-avg",{ "Agent" + str(self._agent_id): np.mean(safe_q_values)}, iteration)
             self._tb_writer.add_scalars("safety_bellman_residual",{"Agent" + str(self._agent_id): np.mean(safety_bellman_residual)}, iteration)
             self._tb_writer.add_scalars("beta", {"beta": beta}, iteration)
-            self._tb_writer.add_scalars("betaloss", {"betaloss": beta_loss}, iteration)
-            self._tb_writer.add_scalars("violation", {"violation": np.mean(violation)}, iteration)
+            self._tb_writer.add_scalars("violation/beta_gradient", {"violation/beta_gradient": np.mean(violation)}, iteration)
             #self._tb_writer.add_scalars("cvar-safe-qf-avg", {"cvar-safe-qf-avg": np.mean(cvar_safe_q)}, iteration)
         logger.record_tabular('qf-avg-agent-{}'.format(self._agent_id), np.mean(qf))
         logger.record_tabular('qf-std-agent-{}'.format(self._agent_id), np.std(qf))
         logger.record_tabular('safe-qf-avg', np.mean(safe_q_values))
         logger.record_tabular('safe-qf-std', np.std(safe_q_values))
         logger.record_tabular('beta',beta)
+        logger.record_tabular('violation',np.mean(violation))
         logger.record_tabular('mean-sq-bellman-error-agent-{}'.format(self._agent_id), bellman_residual)
         logger.record_tabular('mean-sq-safety-bellman-error-agent-{}'.format(self._agent_id), safety_bellman_residual)
-
+        logger.record_tabular('iteration',iteration)
         self.policy.log_diagnostics(batch)
         if self.plotter:
             self.plotter.draw()

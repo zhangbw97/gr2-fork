@@ -110,6 +110,7 @@ class GeneralizedMultiLevelPolicy(NNPolicy, Serializable):
         return all_actions
 
     def level_distribution(self, k, mu):
+        # distribution of opponent thinking level
         _dists = np.array([poisson.pmf(kk, mu) for kk in range(1, k+1)])
         return _dists / np.sum(_dists)
 

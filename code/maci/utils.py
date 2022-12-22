@@ -1,6 +1,19 @@
 from builtins import *
 import numpy as np
+import tensorflow as tf
+from scipy.stats import norm
 EPS = 1e-6
+
+def gaussian_likelihood(x, mu, log_std):#log of gaussian pdf 
+    pre_sum = -0.5 * (((x-mu)/(tf.exp(log_std)+EPS))**2 + 2*log_std + np.log(2*np.pi))
+    return tf.reduce_sum(pre_sum, axis=1)
+
+def compute_cvar(safety_q_value, risk_level=0.05,std = 1.):
+    #cvar with risk_level(alpha) 0.05 means E[Q|Q>= ppf(1-alpha)]
+    #ppf: inverse cdf
+    pdf_cdf = risk_level**(-1)*norm.pdf(norm.ppf(risk_level))
+    cvar = safety_q_value + pdf_cdf * (std ** 0.5)
+    return cvar
 
 
 def projection(PI, threshold=0):
