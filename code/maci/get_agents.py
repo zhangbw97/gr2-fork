@@ -3,7 +3,7 @@ import tensorflow as tf
 from maci.learners import MADDPG, MAVBAC, MASQL
 from maci.misc.kernel import adaptive_isotropic_gaussian_kernel
 from maci.replay_buffers import SimpleReplayBuffer
-from maci.value_functions.sq_value_function import NNQFunction, NNJointQFunction
+from maci.value_functions.sq_value_function import NNQFunction, NNJointQFunction, NNVFunction
 from maci.policies import StochasticNNConditionalPolicy, StochasticNNPolicy
 from maci.policies.deterministic_policy import DeterministicNNPolicy, ConditionalDeterministicNNPolicy, DeterministicToMNNPolicy
 from maci.policies.uniform_policy import UniformPolicy
@@ -141,15 +141,16 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
             policy, target_policy = get_level_k_policy(env, k, M, i, u_range, opponent_conditional_policy, game_name=game_name)
 
 
+    
 
-
-    joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, agent_id=i)
+    joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, name='joint_qf',agent_id=i)
     target_joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_joint_qf',
-                                       joint=joint, agent_id=i)
-    safe_joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='safe_joint_qf',
                                        joint=True, agent_id=i)
+    safe_joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M],joint=joint,name='safe_joint_qf', agent_id=i)
     target_safe_joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_safe_joint_qf',
                                        joint=True, agent_id=i)                                   
+    safe_vf = NNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M],name= 'safe_vf',agent_id=i)
+    target_safe_vf = NNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M],name= 'target_safe_vf',agent_id=i)
     qf = NNQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=False, agent_id=i)
     plotter = None
 
@@ -160,8 +161,10 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         pool=pool,
         joint_qf=joint_qf,
         safe_joint_qf=safe_joint_qf,
+        safe_vf = safe_vf,
         target_joint_qf=target_joint_qf,
         target_safe_joint_qf=target_safe_joint_qf,
+        target_safe_vf = target_safe_vf,
         qf=qf,
         policy=policy,
         target_policy=target_policy,
@@ -178,7 +181,7 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         kernel_n_particles=32,
         kernel_update_ratio=0.5,
         td_target_update_interval=5,
-        beta_update_interval = 5,
+        beta_update_interval = 30,
         discount=0.99,
         safety_discount=0.99,
         reward_scale=1,

@@ -99,7 +99,7 @@ def main(arglist):
     suffix = 'lagrangian/{}/{}/{}/{}'.format(path_prefix, agent_num, model_name, timestamp)
     tb_suffix = 'lagrangian/{}_{}_{}_{}'.format(path_prefix, agent_num, model_name, timestamp)
     print(suffix)
-    logger.add_tabular_output('./log/no_reward_noise/{}.csv'.format(suffix))
+    logger.add_tabular_output('./log/no_reward_noise/stay_in_sight/{}.csv'.format(suffix))
     snapshot_dir = './snapshot/{}'.format(suffix)
     policy_dir = './policy/{}'.format(suffix)
     os.makedirs(snapshot_dir, exist_ok=True)
@@ -107,7 +107,7 @@ def main(arglist):
     logger.set_snapshot_dir(snapshot_dir)
     tb_writer = None
     if arglist.logging_enabled:
-        tb_writer = SummaryWriter('./log/no_reward_noise/tb_{}'.format(tb_suffix)) # NOTE added
+        tb_writer = SummaryWriter('./log/no_reward_noise/stay_in_sight/tb_{}'.format(tb_suffix)) # NOTE added
 
     agents = []
     M = arglist.hidden_size
@@ -172,7 +172,6 @@ def main(arglist):
                 print(suffix)
             for t in range(base_kwargs['epoch_length']):
                 # TODO.code consolidation: Add control interval to sampler
-                # it only add initial samples to replay buffer?
                 if not initial_exploration_done:
                     if epoch >= 1000/arglist.max_path_length: # NOTE: change?
                         initial_exploration_done = True
@@ -278,6 +277,10 @@ def main(arglist):
                             else:
                                 batch_n[i]['opponent_next_actions'] = np.reshape(np.delete(deepcopy(target_next_actions_n), i, 0), (-1, agent._opponent_action_dim))
                         if isinstance(agent, MAVBAC) or isinstance(agent, MASQL):
+                            # safety_cost_episode = base_kwargs['epoch_length'] + 1.0# hacky way to define an impossible number
+                            # if sampler.episode_finish:
+                            #     safety_cost_episode = sampler.safety_cost_episode
+                            
                             agent._do_training(iteration=t + epoch * agent._epoch_length, batch=batch_n[i], annealing=alpha)
                         else:
                             agent._do_training(iteration=t + epoch * agent._epoch_length, batch=batch_n[i])

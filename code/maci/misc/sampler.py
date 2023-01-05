@@ -201,18 +201,17 @@ class MASampler(SimpleSampler):
         if self._current_observation_n is None:
             self._current_observation_n = self.env.reset()
         action_n = []
-        safety_q_n = []
+        self.episode_finish = False
         for agent, current_observation in zip(self.agents, self._current_observation_n):
             action, _ = agent.policy.get_action(current_observation)
             if agent.joint_policy:
                 action_n.append(np.array(action)[0:agent._action_dim])
             else:
                 action_n.append(np.array(action))
-        for i, (agent, current_observation) in enumerate(zip(self.agents, self._current_observation_n)):
-            safety_q = agent.safe_joint_qf.eval(np.array(current_observation,dtype=np.float32).reshape(1,-1),np.array(action_n[i]).reshape(1,-1),np.array(action_n[1-i]).reshape(1,-1))
-            safety_q_n.append(np.array(safety_q))
+        # for i, (agent, current_observation) in enumerate(zip(self.agents, self._current_observation_n)):
+        #     safety_q = agent.safe_joint_qf.eval(np.array(current_observation,dtype=np.float32).reshape(1,-1),np.array(action_n[i]).reshape(1,-1),np.array(action_n[1-i]).reshape(1,-1))
+        #     safety_q_n.append(np.array(safety_q))
         next_observation_n, reward_n, safety_cost_n, done_n, info = self.env.step(action_n)
-        
         self._path_length += 1
         self._path_return += np.array(reward_n, dtype=np.float32) #- np.array(safety_cost_n, dtype=np.float32) 
         self._path_collision_num += safety_cost_n[0]
@@ -260,6 +259,8 @@ class MASampler(SimpleSampler):
             self._path_length = 0
 
             self._path_return = np.array([0.] * self.agent_num, dtype=np.float32)
+            self.episode_finish = True
+            self.safety_cost_episode = self._path_collision_num.item()
             self._path_collision_num = np.array([0.], dtype=np.float32)
             self._n_episodes += 1
 
