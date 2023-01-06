@@ -67,7 +67,7 @@ class MAVBAC(MARLAlgorithm):
             joint_policy=False,
             opponent_action_range=None,
             opponent_action_range_normalize=True,
-            safety_bound=0.1,
+            safety_bound=0.15,
             risk_level=0.1,
             cost_std=0.05,
             max_episode_len=30,
@@ -135,11 +135,6 @@ class MAVBAC(MARLAlgorithm):
         # just for two agent case
         self._opponent_action_dim = self.env.action_spaces.opponent_flat_dim(self._agent_id)
 
-        # set seed
-        seed = 1
-        tf.set_random_seed(seed)
-        np.random.seed(seed)
-
         self._create_placeholders()
 
         self._training_ops = []
@@ -182,6 +177,11 @@ class MAVBAC(MARLAlgorithm):
             saved_policy_params = policy.get_param_values()
 
         self._sess = tf_utils.get_default_session()
+
+        # set seed
+        seed = 2
+        tf.set_random_seed(seed)
+        np.random.seed(seed)
 
         self._sess.run(tf.global_variables_initializer())
 
