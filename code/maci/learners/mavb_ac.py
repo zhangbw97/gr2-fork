@@ -10,7 +10,7 @@ from maci.misc import tf_utils
 from .base import MARLAlgorithm
 
 EPS = 1e-6
-INITIAL_BETA = 5.0
+INITIAL_BETA = 0.0
 
 def get_vars(scope):
     return [x for x in tf.global_variables() if scope in x.name]
@@ -70,7 +70,7 @@ class MAVBAC(MARLAlgorithm):
             joint_policy=False,
             opponent_action_range=None,
             opponent_action_range_normalize=True,
-            safety_bound=0.1,
+            safety_bound=None,
             risk_level=0.1,
             cost_std=0.05,
             max_episode_len=30,
@@ -281,7 +281,7 @@ class MAVBAC(MARLAlgorithm):
         next_value -= tf.log(tf.cast(self._value_n_particles, tf.float32))  
         # assume each action dimension has pi(a^i|s) = 0.5 possibility of selecting target action
         # so uniform distribution between up and down, left and right        
-        next_value += (self._opponent_action_dim) * np.log(2) 
+        # next_value += (self._opponent_action_dim) * np.log(2) 
 
         # target Q function 
         ys = tf.stop_gradient(self._reward_scale * self._rewards_pl + (
@@ -490,7 +490,8 @@ class MAVBAC(MARLAlgorithm):
             damp = self.damp_scale * tf.reduce_mean(safety_bound - safe_target)
             constraint_term = ( self.beta - damp) * tf.reduce_mean(safe_target)
             pg_loss = pg_loss + constraint_term
-        
+            self.pg_loss = pg_loss
+            self.constraint_term = constraint_term
         # todo add level k Q loss:
         with tf.variable_scope('policy_opt_agent_{}'.format(self._agent_id), reuse=tf.AUTO_REUSE):
             if self._train_policy:
@@ -681,8 +682,8 @@ class MAVBAC(MARLAlgorithm):
         feeds = self._get_feed_dict(batch,annealing)
         q_values, bellman_residual,safe_q_values,safety_q_bellman_residual,beta,violation= self._sess.run(
             [self._q_values, self._bellman_residual, self._safe_q_values, self._safety_q_bellman_residual,self.beta,self._violation], feeds)
-        safety_v_bellman_residual, safe_v_values= self._sess.run(
-            [self._safety_v_bellman_residual,self._safe_v_values], feeds)
+        safety_v_bellman_residual, safe_v_values, pg_loss, constraint_term= self._sess.run(
+            [self._safety_v_bellman_residual,self._safe_v_values,self.pg_loss,self.constraint_term], feeds)
         if self._logging and self._tb_writer is not None:
         
             self._tb_writer.add_scalars("qf-avg-agent",{"Agent" + str(self._agent_id): np.mean(q_values)}, iteration)

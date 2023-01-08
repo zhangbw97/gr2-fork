@@ -143,8 +143,8 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
 
 
     
-    # centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='centralized_vf',agent_num=2)
-    # target_centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_centralized_vf',agent_num=2)
+    centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='centralized_vf',agent_num=2)
+    target_centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_centralized_vf',agent_num=2)
     joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, name='joint_qf',agent_id=i)
     target_joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_joint_qf',
                                        joint=True, agent_id=i)
@@ -178,7 +178,7 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         logging=logging,
         policy_lr=3e-4,
         beta_lr=3e-4,
-        qf_lr=3e-4,
+        qf_lr=1e-3,
         joint=False,
         value_n_particles=16,
         kernel_fn=adaptive_isotropic_gaussian_kernel,
@@ -190,6 +190,7 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         safety_discount=0.99,
         reward_scale=1,
         safety_cost_scale=1,
+        safety_bound=0.4,
         tau=0.01,
         save_full_state=False,
         k=k,

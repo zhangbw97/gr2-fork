@@ -14,7 +14,7 @@ from maci.get_agents import ddpg_agent, masql_agent, pr2ac_agent
 import maci.misc.tf_utils as U
 import os
 from tensorboardX import SummaryWriter
-from keras.backend.tensorflow_backend import set_session
+from tensorflow.python.keras.backend import set_session
 import tensorflow as tf
 config = tf.ConfigProto()
 config.gpu_options.allow_growth = True  # dynamically grow the memory used on the GPU
@@ -123,8 +123,8 @@ def main(arglist):
         'eval_render': True,
         'eval_n_episodes': 10
     }
-    centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='centralized_vf',agent_num=len(agents))
-    target_centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_centralized_vf',agent_num=len(agents))
+    # centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='centralized_vf',agent_num=len(agents))
+    # target_centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_centralized_vf',agent_num=len(agents))
     with U.single_threaded_session():
         for i, model_name in enumerate(model_names):
             if 'PR2AC' in model_name:
@@ -133,7 +133,7 @@ def main(arglist):
                 mu = arglist.mu
                 if 'G' in model_name:
                     g = True
-                agent = pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux,centralized_v_fn=centralized_v_fn,target_centralized_v_fn=target_centralized_v_fn,logging=arglist.logging_enabled,lagrangian=True)
+                agent = pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux,logging=arglist.logging_enabled,lagrangian=True)
             elif model_name == 'MASQL':
                 agent = masql_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
             else:
