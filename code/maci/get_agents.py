@@ -4,6 +4,7 @@ from maci.learners import MADDPG, MAVBAC, MASQL
 from maci.misc.kernel import adaptive_isotropic_gaussian_kernel
 from maci.replay_buffers import SimpleReplayBuffer
 from maci.value_functions.sq_value_function import NNQFunction, NNJointQFunction, NNVFunction
+from maci.value_functions.centralized_sq_value_function import CentralizedNNVFunction
 from maci.policies import StochasticNNConditionalPolicy, StochasticNNPolicy
 from maci.policies.deterministic_policy import DeterministicNNPolicy, ConditionalDeterministicNNPolicy, DeterministicToMNNPolicy
 from maci.policies.uniform_policy import UniformPolicy
@@ -96,7 +97,7 @@ def get_level_k_policy(env, k, M, agent_id, u_range, opponent_conditional_policy
     return k_policy, target_k_policy
 
 
-def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=False, mu=1.5, game_name='matrix', aux=True, logging = False, lagrangian=False):
+def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=False, mu=1.5, game_name='matrix', aux=True,centralized_v_fn=None,target_centralized_v_fn=None,logging = False, lagrangian=False):
     joint = False
     squash = True
     squash_func = tf.tanh
@@ -142,7 +143,8 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
 
 
     
-
+    # centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='centralized_vf',agent_num=2)
+    # target_centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_centralized_vf',agent_num=2)
     joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, name='joint_qf',agent_id=i)
     target_joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_joint_qf',
                                        joint=True, agent_id=i)
@@ -162,6 +164,8 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         joint_qf=joint_qf,
         safe_joint_qf=safe_joint_qf,
         safe_vf = safe_vf,
+        centralized_v_fn= centralized_v_fn,
+        target_centralized_v_fn=target_centralized_v_fn,
         target_joint_qf=target_joint_qf,
         target_safe_joint_qf=target_safe_joint_qf,
         target_safe_vf = target_safe_vf,

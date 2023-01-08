@@ -1,3 +1,4 @@
+from maci.value_functions.centralized_sq_value_function import CentralizedNNVFunction
 import numpy as np
 import argparse
 from maci.learners import MAVBAC, MASQL
@@ -122,7 +123,8 @@ def main(arglist):
         'eval_render': True,
         'eval_n_episodes': 10
     }
-    
+    centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='centralized_vf',agent_num=len(agents))
+    target_centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_centralized_vf',agent_num=len(agents))
     with U.single_threaded_session():
         for i, model_name in enumerate(model_names):
             if 'PR2AC' in model_name:
@@ -131,7 +133,7 @@ def main(arglist):
                 mu = arglist.mu
                 if 'G' in model_name:
                     g = True
-                agent = pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux,logging=arglist.logging_enabled,lagrangian=True)
+                agent = pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux,centralized_v_fn=centralized_v_fn,target_centralized_v_fn=target_centralized_v_fn,logging=arglist.logging_enabled,lagrangian=True)
             elif model_name == 'MASQL':
                 agent = masql_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
             else:
@@ -234,6 +236,19 @@ def main(arglist):
                     try:
                         for agent, batch in zip(agents, batch_n):
                             target_next_actions_n.append(agent._target_policy.get_actions(batch['next_observations']))
+                    except:
+                        pass
+                    try:
+                        centralized_states = np.empty([batch_size,0])
+                        next_centralized_states = np.empty([batch_size,0])
+                        for batch in batch_n:
+                            centralized_states = np.append(centralized_states,batch['observations'],axis=1)
+                            next_centralized_states = np.append(next_centralized_states,batch['next_observations'],axis=1)
+                        for i, batch in enumerate(batch_n):
+                            batch['centralized_states'] = centralized_states
+                            batch['next_centralized_states'] = next_centralized_states
+                            # assume only 2 agents
+                            batch['opponent_observations'] = batch_n[1-i]['observations']
                     except:
                         pass
 

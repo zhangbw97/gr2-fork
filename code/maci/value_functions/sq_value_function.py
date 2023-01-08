@@ -49,6 +49,8 @@ class NNVFunction(MLPFunction):
             (observations, ), reuse=reuse)
 
 
+
+
 class NNQFunction(MLPFunction):
     def __init__(self, env_spec=None,
                  observation_space=None,
