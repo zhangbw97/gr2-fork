@@ -177,6 +177,7 @@ class StochasticNNConditionalPolicy(NNPolicy, Serializable):
 
         if self.sampling:
             # print('raw_actions', raw_actions)
+            # resampling trick
             u = tf.random_uniform(tf.shape(raw_actions))
             return tf.nn.softmax(raw_actions - tf.log(-tf.log(u)), axis=-1)
 

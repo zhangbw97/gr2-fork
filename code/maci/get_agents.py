@@ -143,17 +143,14 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
 
 
     
-    centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='centralized_vf',agent_num=2)
-    target_centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_centralized_vf',agent_num=2)
     joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=joint, name='joint_qf',agent_id=i)
     target_joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_joint_qf',
                                        joint=True, agent_id=i)
     safe_joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M],joint=joint,name='safe_joint_qf', agent_id=i)
     target_safe_joint_qf = NNJointQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_safe_joint_qf',
                                        joint=True, agent_id=i)                                   
-    safe_vf = NNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M],name= 'safe_vf',agent_id=i)
-    target_safe_vf = NNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M],name= 'target_safe_vf',agent_id=i)
     qf = NNQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=False, agent_id=i)
+    safe_qf = NNQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='safe_qf',joint=False, agent_id=i)
     plotter = None
 
     agent = MAVBAC(
@@ -163,13 +160,10 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         pool=pool,
         joint_qf=joint_qf,
         safe_joint_qf=safe_joint_qf,
-        safe_vf = safe_vf,
-        centralized_v_fn= centralized_v_fn,
-        target_centralized_v_fn=target_centralized_v_fn,
         target_joint_qf=target_joint_qf,
         target_safe_joint_qf=target_safe_joint_qf,
-        target_safe_vf = target_safe_vf,
         qf=qf,
+        safe_qf = safe_qf,
         policy=policy,
         target_policy=target_policy,
         conditional_policy=opponent_conditional_policy,
@@ -189,8 +183,8 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         discount=0.99,
         safety_discount=0.99,
         reward_scale=1,
-        safety_cost_scale=1,
-        safety_bound=0.4,
+        safety_cost_scale=5,
+        safety_bound=0.5,
         tau=0.01,
         save_full_state=False,
         k=k,

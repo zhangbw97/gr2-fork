@@ -238,19 +238,6 @@ def main(arglist):
                             target_next_actions_n.append(agent._target_policy.get_actions(batch['next_observations']))
                     except:
                         pass
-                    try:
-                        centralized_states = np.empty([batch_size,0])
-                        next_centralized_states = np.empty([batch_size,0])
-                        for batch in batch_n:
-                            centralized_states = np.append(centralized_states,batch['observations'],axis=1)
-                            next_centralized_states = np.append(next_centralized_states,batch['next_observations'],axis=1)
-                        for i, batch in enumerate(batch_n):
-                            batch['centralized_states'] = centralized_states
-                            batch['next_centralized_states'] = next_centralized_states
-                            # assume only 2 agents
-                            batch['opponent_observations'] = batch_n[1-i]['observations']
-                    except:
-                        pass
 
 
                     opponent_actions_n = np.array([batch['actions'] for batch in batch_n])

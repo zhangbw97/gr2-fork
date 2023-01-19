@@ -121,7 +121,7 @@ class SimpleReplayBuffer(ReplayBuffer, Serializable):
         )
         self._actions = np.fromstring(d['a']).reshape(self._max_buffer_size, -1)
         self._rewards = np.fromstring(d['r']).reshape(self._max_buffer_size)
-        self._safety_costs = np.fromstring(d['s_c']).reshape(self._max_buffer_size)
+        self._safety_costs = np.fromstring(d['c']).reshape(self._max_buffer_size)
         self._terminals = np.fromstring(d['t'], dtype=np.uint8)
         self._top = d['top']
         self._size = d['size']
