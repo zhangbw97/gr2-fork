@@ -170,11 +170,6 @@ class MAVBAC(MARLAlgorithm):
 
         self._sess = tf_utils.get_default_session()
 
-        # # set seed
-        # seed = 1
-        # tf.set_random_seed(seed)
-        # np.random.seed(seed)
-
         self._sess.run(tf.global_variables_initializer())
 
         if use_saved_qf:
@@ -258,7 +253,7 @@ class MAVBAC(MARLAlgorithm):
         next_value -= tf.log(tf.cast(self._value_n_particles, tf.float32))  
         # assume each action dimension has pi(a^i|s) = 0.5 possibility of selecting target action
         # so uniform distribution between up and down, left and right        
-        next_value += (self._opponent_action_dim) * np.log(2) 
+        # next_value += (self._opponent_action_dim) * np.log(2) 
 
         # target Q function 
         ys = tf.stop_gradient(self._reward_scale * self._rewards_pl + (
@@ -356,11 +351,11 @@ class MAVBAC(MARLAlgorithm):
         violation = safety_values - safety_bound 
         beta_loss = self.beta *tf.reduce_mean(-violation)  
         self._violation = violation
-        with tf.variable_scope('beta_opt_agent', reuse=tf.AUTO_REUSE):
+        with tf.variable_scope('beta_opt_agent_{}'.format(self._agent_id), reuse=tf.AUTO_REUSE):
             optimizer = tf.train.AdamOptimizer(self._beta_lr)
             beta_training_op = optimizer.minimize(
                 loss=beta_loss,
-                var_list=get_vars('costpen_agent'))
+                var_list=get_vars('costpen_agent_{}'.format(self._agent_id)))
             self._beta_training_ops.append(beta_training_op)
 
     def _create_p_update(self):
@@ -393,7 +388,7 @@ class MAVBAC(MARLAlgorithm):
                      [None, self._value_n_particles, self._opponent_action_dim])
         # why next observation but current action?
         q_targets = self.joint_qf.output_for(
-            observations=self._observations_ph[:, None, :],
+            observations=self._next_observations_ph[:, None, :],
             actions=self_actions[:, None, :],
             opponent_actions=opponent_target_actions)
 
@@ -411,38 +406,38 @@ class MAVBAC(MARLAlgorithm):
             # only works for k = 2, 3
             if self._k > 1:
                 q_k= self.joint_qf.output_for(
-                    observations=self._observations_ph,
+                    observations=self._next_observations_ph,
                     actions=all_actions[-1],
                     opponent_actions=all_actions[-2], reuse=tf.AUTO_REUSE)
                 q_k_2 = self.joint_qf.output_for(
-                    observations=self._observations_ph,
+                    observations=self._next_observations_ph,
                     actions=all_actions[-3],
                     opponent_actions=all_actions[-2], reuse=tf.AUTO_REUSE)
                 sq_k= self.safe_joint_qf.output_for(
-                    observations=self._observations_ph,
+                    observations=self._next_observations_ph,
                     actions=all_actions[-1],
                     opponent_actions=all_actions[-2], reuse=tf.AUTO_REUSE)
                 sq_k_2 = self.safe_joint_qf.output_for(
-                    observations=self._observations_ph,
+                    observations=self._next_observations_ph,
                     actions=all_actions[-3],
                     opponent_actions=all_actions[-2], reuse=tf.AUTO_REUSE)
                 pg_loss += tf.reduce_mean(q_k_2 - q_k) + tf.reduce_mean(sq_k - sq_k_2)
             if self._k > 3:
                 print(self._k , 'self._k ', 'self._k ')
                 q_k = self.joint_qf.output_for(
-                    observations=self._observations_ph,
+                    observations=self._next_observations_ph,
                     actions=all_actions[-3],
                     opponent_actions=all_actions[-4], reuse=tf.AUTO_REUSE)
                 q_k_2 = self.joint_qf.output_for(
-                    observations=self._observations_ph,
+                    observations=self._next_observations_ph,
                     actions=all_actions[-5],
                     opponent_actions=all_actions[-4], reuse=tf.AUTO_REUSE)
                 sq_k = self.safe_joint_qf.output_for(
-                    observations=self._observations_ph,
+                    observations=self._next_observations_ph,
                     actions=all_actions[-3],
                     opponent_actions=all_actions[-4], reuse=tf.AUTO_REUSE)
                 sq_k_2 = self.safe_joint_qf.output_for(
-                    observations=self._observations_ph,
+                    observations=self._next_observations_ph,
                     actions=all_actions[-5],
                     opponent_actions=all_actions[-4], reuse=tf.AUTO_REUSE)
                 pg_loss += tf.reduce_mean(q_k_2 - q_k) + tf.reduce_mean(sq_k - sq_k_2)
@@ -450,7 +445,7 @@ class MAVBAC(MARLAlgorithm):
             #TODO check the usage of next observation and current actions
 
             safe_q_targets = self.safe_joint_qf.output_for(
-                self._observations_ph[:, None, :],
+                self._next_observations_ph[:, None, :],
                 self_actions[:, None, :], 
                 opponent_target_actions, reuse=True)
             assert_shape(safe_q_targets, [None,self._value_n_particles])

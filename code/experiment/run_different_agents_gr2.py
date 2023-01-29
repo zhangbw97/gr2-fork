@@ -1,4 +1,3 @@
-from maci.value_functions.centralized_sq_value_function import CentralizedNNVFunction
 import numpy as np
 import argparse
 from maci.learners import MAVBAC, MASQL
@@ -6,6 +5,7 @@ from maci.misc.sampler import MASampler
 from maci.environments import PBeautyGame, MatrixGame
 from maci.environments import make_particle_env
 from maci.misc import logger
+import random
 import gtimer as gt
 import datetime
 from copy import deepcopy
@@ -45,6 +45,7 @@ def parse_args():
     parser.add_argument('-g', "--game_name", type=str, default="particle-simple_spread", help="name of the game")
     parser.add_argument('-p', "--p", type=float, default=1.1, help="p")
     parser.add_argument('-mu', "--mu", type=float, default=1.5, help="mu")
+    parser.add_argument('-seed', "--seed", type=float, default=1, help="seed")
     parser.add_argument('-r', "--reward_type", type=str, default="abs", help="reward type")
     parser.add_argument('-mp', "--max_path_length", type=int, default=30, help="reward type")
     parser.add_argument('-ms', "--max_steps", type=int, default=100000, help="reward type")
@@ -58,8 +59,21 @@ def parse_args():
     parser.add_argument("--logging-enabled", action="store_true", help="enable logging")
     return parser.parse_args()
 
+def set_global_seeds(seed):
+    """
+    set the seed for python random, tensorflow, numpy and gym spaces
 
+    :param seed: (int) the seed
+    """
+    tf.set_random_seed(seed)
+    np.random.seed(seed)
+    random.seed(seed)
+    # # prng was removed in latest gym version
+    # if hasattr(gym.spaces, 'prng'):
+    #     gym.spaces.prng.seed(seed)
 def main(arglist):
+
+    set_global_seeds(arglist.seed)
     game_name = arglist.game_name
     # 'abs', 'one'
     reward_type = arglist.reward_type

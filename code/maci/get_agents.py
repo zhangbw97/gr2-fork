@@ -81,6 +81,7 @@ def get_level_k_policy(env, k, M, agent_id, u_range, opponent_conditional_policy
                                                           name='conditional_policy',
                                                           squash=squash, squash_func=squash_func, sampling=sampling, u_range=u_range, joint=False,
                                                           agent_id=agent_id)
+    # TODO: the highest level conditional policy should be stochastic
     k_policy = MultiLevelPolicy(env_spec=env.env_specs,
                                 k=k,
                                 base_policy=base_policy,
@@ -184,7 +185,7 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         safety_discount=0.99,
         reward_scale=1,
         safety_cost_scale=5,
-        safety_bound=0.5,
+        safety_bound=0.9,
         tau=0.01,
         save_full_state=False,
         k=k,
