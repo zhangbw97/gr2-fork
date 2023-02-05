@@ -151,6 +151,7 @@ def main(arglist):
         reward_scale:float = 1.
         safety_cost_scale:float = 10.
         safety_bound:float = 0.5
+        lagrangian:bool = False
     
     training_config = TrainingConfig()
     if arglist.wandb_enabled:
@@ -171,7 +172,7 @@ def main(arglist):
                 mu = arglist.mu
                 if 'G' in model_name:
                     g = True
-                agent = pr2ac_agent(model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux,lagrangian=True,training_config=training_config)
+                agent = pr2ac_agent(model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux,training_config=training_config)
             elif model_name == 'MASQL':
                 agent = masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
             else:

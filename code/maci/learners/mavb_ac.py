@@ -152,12 +152,14 @@ class MAVBAC(MARLAlgorithm):
             self.beta = 0.0  # costs do not contribute to policy optimization
             print('Not using costs')
         
+        if self._lagrangian:
+            self._create_q_cost_update()
+            self._create_coefficient_update()
         self._create_q_update()
-        self._create_q_cost_update()
         self._create_conditional_policy_svgd_update()
         self._create_p_update()
         self._create_target_ops()
-        self._create_coefficient_update()
+        
 
         if use_saved_qf:
             saved_qf_params = qf.get_param_values()
@@ -409,15 +411,18 @@ class MAVBAC(MARLAlgorithm):
                     observations=self._next_observations_ph,
                     actions=all_actions[-3],
                     opponent_actions=all_actions[-2], reuse=tf.AUTO_REUSE)
-                sq_k= self.safe_joint_qf.output_for(
-                    observations=self._next_observations_ph,
-                    actions=all_actions[-1],
-                    opponent_actions=all_actions[-2], reuse=tf.AUTO_REUSE)
-                sq_k_2 = self.safe_joint_qf.output_for(
-                    observations=self._next_observations_ph,
-                    actions=all_actions[-3],
-                    opponent_actions=all_actions[-2], reuse=tf.AUTO_REUSE)
-                pg_loss += tf.reduce_mean(q_k_2 - q_k) + tf.reduce_mean(sq_k - sq_k_2)
+                if self._lagrangian:
+                    sq_k= self.safe_joint_qf.output_for(
+                        observations=self._next_observations_ph,
+                        actions=all_actions[-1],
+                        opponent_actions=all_actions[-2], reuse=tf.AUTO_REUSE)
+                    sq_k_2 = self.safe_joint_qf.output_for(
+                        observations=self._next_observations_ph,
+                        actions=all_actions[-3],
+                        opponent_actions=all_actions[-2], reuse=tf.AUTO_REUSE)
+                    pg_loss += tf.reduce_mean(q_k_2 - q_k) + tf.reduce_mean(sq_k - sq_k_2)
+                else:
+                    pg_loss += tf.reduce_mean(q_k_2 - q_k) 
             if self._k > 3:
                 print(self._k , 'self._k ', 'self._k ')
                 q_k = self.joint_qf.output_for(
@@ -428,15 +433,18 @@ class MAVBAC(MARLAlgorithm):
                     observations=self._next_observations_ph,
                     actions=all_actions[-5],
                     opponent_actions=all_actions[-4], reuse=tf.AUTO_REUSE)
-                sq_k = self.safe_joint_qf.output_for(
-                    observations=self._next_observations_ph,
-                    actions=all_actions[-3],
-                    opponent_actions=all_actions[-4], reuse=tf.AUTO_REUSE)
-                sq_k_2 = self.safe_joint_qf.output_for(
-                    observations=self._next_observations_ph,
-                    actions=all_actions[-5],
-                    opponent_actions=all_actions[-4], reuse=tf.AUTO_REUSE)
-                pg_loss += tf.reduce_mean(q_k_2 - q_k) + tf.reduce_mean(sq_k - sq_k_2)
+                if self._lagrangian:
+                    sq_k = self.safe_joint_qf.output_for(
+                        observations=self._next_observations_ph,
+                        actions=all_actions[-3],
+                        opponent_actions=all_actions[-4], reuse=tf.AUTO_REUSE)
+                    sq_k_2 = self.safe_joint_qf.output_for(
+                        observations=self._next_observations_ph,
+                        actions=all_actions[-5],
+                        opponent_actions=all_actions[-4], reuse=tf.AUTO_REUSE)
+                    pg_loss += tf.reduce_mean(q_k_2 - q_k) + tf.reduce_mean(sq_k - sq_k_2)
+                else:
+                    pg_loss += tf.reduce_mean(q_k_2 - q_k)
         if self._lagrangian:
             #TODO check the usage of next observation and current actions
 
@@ -570,8 +578,6 @@ class MAVBAC(MARLAlgorithm):
 
         source_q_params = self.joint_qf.get_params_internal()
         target_q_params = self.target_joint_qf.get_params_internal()
-        source_sq_params = self.safe_joint_qf.get_params_internal()
-        target_sq_params = self.target_safe_joint_qf.get_params_internal()
         source_p_params = self._policy.get_params_internal()
         target_p_params = self._target_policy.get_params_internal()
         target_p_op = [tf.assign(target, (1 - self._tau) * target + self._tau * source)
@@ -579,20 +585,16 @@ class MAVBAC(MARLAlgorithm):
                            
         target_q_op = [tf.assign(target, (1 - self._tau) * target + self._tau * source)
                                for target, source in zip(target_q_params, source_q_params)]
-        target_sq_op = [tf.assign(target, (1 - self._tau) * target + self._tau * source)
-                               for target, source in zip(target_sq_params, source_sq_params)]
+        
+        if self._lagrangian:
+            source_sq_params = self.safe_joint_qf.get_params_internal()
+            target_sq_params = self.target_safe_joint_qf.get_params_internal()
+            target_sq_op = [tf.assign(target, (1 - self._tau) * target + self._tau * source)
+                                for target, source in zip(target_sq_params, source_sq_params)]
                  
-        self._target_ops = target_q_op + target_sq_op + target_p_op 
-        # [
-        #                        tf.assign(target, (1 - self._tau) * target + self._tau * source)
-        #                        for target, source in zip(target_q_params, source_q_params)
-        #                    ] + [
-        #                        tf.assign(target, (1 - self._tau) * target + self._tau * source)
-        #                        for target, source in zip(target_p_params, source_p_params)
-        #                    ]+ [
-        #                        tf.assign(target, (1 - self._tau) * target + self._tau * source)
-        #                        for target, source in zip(target_sq_params, source_sq_params)
-        #                    ]
+            self._target_ops = target_q_op + target_sq_op + target_p_op 
+        else:
+            self._target_ops = target_q_op + target_p_op
 
     # TODO: do not pass, policy, and pool to `__init__` directly.
     def train(self):
@@ -642,15 +644,21 @@ class MAVBAC(MARLAlgorithm):
         feeds = self._get_feed_dict(batch,annealing)
         q_values, bellman_residual,safe_q_values,safety_q_bellman_residual,beta,violation= self._sess.run(
             [self._q_values, self._bellman_residual, self._safe_q_values, self._safety_q_bellman_residual,self.beta,self._violation], feeds)
-        pg_loss, constraint_term, safe_q_targets, q_targets= self._sess.run(
-            [self.pg_loss,self.constraint_term,self.safe_q_targets,self.q_targets], feeds)
+        
+        # pg_loss, constraint_term, safe_q_targets, q_targets= self._sess.run(
+        #     [self.pg_loss,self.constraint_term,self.safe_q_targets,self.q_targets], feeds)
        
         log_dict.update({'qf-avg_agent_{}'.format(self._agent_id): np.mean(q_values)})
         log_dict.update({'bellman_residual_agent_{}'.format(self._agent_id): bellman_residual})
-        log_dict.update({'safe-qf-avg_agent_{}'.format(self._agent_id): np.mean(safe_q_values)})
-        log_dict.update({'safety_qbellman_residual_agent_{}'.format(self._agent_id): safety_q_bellman_residual})
-        log_dict.update({'beta_agent_{}'.format(self._agent_id): beta})
-        log_dict.update({'violation_agent_{}'.format(self._agent_id): np.mean(violation)})
+        if self._lagrangian:
+            safe_q_values,safety_q_bellman_residual,beta,violation= self._sess.run(
+                [ self._safe_q_values, self._safety_q_bellman_residual,self.beta,self._violation], feeds)
+            
+
+            log_dict.update({'safe-qf-avg_agent_{}'.format(self._agent_id): np.mean(safe_q_values)})
+            log_dict.update({'safety_qbellman_residual_agent_{}'.format(self._agent_id): safety_q_bellman_residual})
+            log_dict.update({'beta_agent_{}'.format(self._agent_id): beta})
+            log_dict.update({'violation_agent_{}'.format(self._agent_id): np.mean(violation)})
         return log_dict
 
 
