@@ -642,8 +642,8 @@ class MAVBAC(MARLAlgorithm):
         Also call the `draw` method of the plotter, if plotter is defined.
         """
         feeds = self._get_feed_dict(batch,annealing)
-        q_values, bellman_residual,safe_q_values,safety_q_bellman_residual,beta,violation= self._sess.run(
-            [self._q_values, self._bellman_residual, self._safe_q_values, self._safety_q_bellman_residual,self.beta,self._violation], feeds)
+        q_values, bellman_residual= self._sess.run(
+            [self._q_values, self._bellman_residual], feeds)
         
         # pg_loss, constraint_term, safe_q_targets, q_targets= self._sess.run(
         #     [self.pg_loss,self.constraint_term,self.safe_q_targets,self.q_targets], feeds)
