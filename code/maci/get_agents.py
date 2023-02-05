@@ -3,14 +3,13 @@ import tensorflow as tf
 from maci.learners import MADDPG, MAVBAC, MASQL
 from maci.misc.kernel import adaptive_isotropic_gaussian_kernel
 from maci.replay_buffers import SimpleReplayBuffer
-from maci.value_functions.sq_value_function import NNQFunction, NNJointQFunction, NNVFunction
-from maci.value_functions.centralized_sq_value_function import CentralizedNNVFunction
+from maci.value_functions.sq_value_function import NNQFunction, NNJointQFunction
 from maci.policies import StochasticNNConditionalPolicy, StochasticNNPolicy
 from maci.policies.deterministic_policy import DeterministicNNPolicy, ConditionalDeterministicNNPolicy, DeterministicToMNNPolicy
 from maci.policies.uniform_policy import UniformPolicy
 from maci.policies.level_k_policy import MultiLevelPolicy, GeneralizedMultiLevelPolicy
 
-def masql_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, game_name='matrix'):
+def masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name='matrix'):
     joint = True
     squash = True
     squash_func = tf.tanh
@@ -39,7 +38,6 @@ def masql_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, game_name
         qf=qf,
         target_qf=target_qf,
         policy=policy,
-        tb_writer=tb_writer,
         plotter=plotter,
         policy_lr=3e-4,
         qf_lr=3e-4,
@@ -98,7 +96,7 @@ def get_level_k_policy(env, k, M, agent_id, u_range, opponent_conditional_policy
     return k_policy, target_k_policy
 
 
-def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=False, mu=1.5, game_name='matrix', aux=True,centralized_v_fn=None,target_centralized_v_fn=None,logging = False, lagrangian=False):
+def pr2ac_agent(model_name, i, env, M, u_range, base_kwargs, k=0, g=False, mu=1.5, game_name='matrix', aux=True, lagrangian=False,training_config = None):
     joint = False
     squash = True
     squash_func = tf.tanh
@@ -153,7 +151,16 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
     qf = NNQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], joint=False, agent_id=i)
     safe_qf = NNQFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='safe_qf',joint=False, agent_id=i)
     plotter = None
-
+    if training_config is not None:
+        qf_lr = training_config.qf_lr
+        safe_qf_lr = training_config.safe_qf_lr
+        policy_lr = training_config.policy_lr
+        beta_lr = training_config.beta_lr
+        discount = training_config.discount
+        safety_discount = training_config.safety_discount
+        reward_scale = training_config.reward_scale
+        safety_cost_scale = training_config.safety_cost_scale
+        safety_bound = training_config.safety_bound
     agent = MAVBAC(
         base_kwargs=base_kwargs,
         agent_id=i,
@@ -169,11 +176,10 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         target_policy=target_policy,
         conditional_policy=opponent_conditional_policy,
         plotter=plotter,
-        tb_writer=tb_writer,
-        logging=logging,
-        policy_lr=3e-4,
-        beta_lr=3e-4,
-        qf_lr=1e-3,
+        policy_lr=policy_lr,
+        beta_lr=beta_lr,
+        qf_lr=qf_lr,
+        safe_qf_lr = safe_qf_lr,
         joint=False,
         value_n_particles=16,
         kernel_fn=adaptive_isotropic_gaussian_kernel,
@@ -181,11 +187,11 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
         kernel_update_ratio=0.5,
         td_target_update_interval=5,
         beta_update_interval = 30,
-        discount=0.99,
-        safety_discount=0.99,
-        reward_scale=1,
-        safety_cost_scale=5,
-        safety_bound=0.9,
+        discount=discount,
+        safety_discount=safety_discount,
+        reward_scale=reward_scale,
+        safety_cost_scale=safety_cost_scale,
+        safety_bound=safety_bound,
         tau=0.01,
         save_full_state=False,
         k=k,
@@ -194,7 +200,7 @@ def pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=0, g=Fa
     return agent
 
 
-def ddpg_agent(tb_writer,joint, opponent_modelling, model_name, i, env, M, u_range, base_kwargs, game_name='matrix'):
+def ddpg_agent(joint, opponent_modelling, model_name, i, env, M, u_range, base_kwargs, game_name='matrix'):
     # joint = True
     # opponent_modelling = False
     print(model_name)
@@ -251,7 +257,6 @@ def ddpg_agent(tb_writer,joint, opponent_modelling, model_name, i, env, M, u_ran
     agent = MADDPG(
         base_kwargs=base_kwargs,
         agent_id=i,
-        tb_writer=tb_writer,
         env=env,
         pool=pool,
         qf=qf,

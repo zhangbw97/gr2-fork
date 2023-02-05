@@ -7,10 +7,11 @@ from maci.environments import make_particle_env
 from maci.misc import logger
 import random
 import gtimer as gt
+import gym
 import datetime
 from copy import deepcopy
-from maci.get_agents import ddpg_agent, masql_agent, pr2ac_agent
-
+from maci.get_agents import  ddpg_agent, masql_agent, pr2ac_agent
+import wandb
 import maci.misc.tf_utils as U
 import os
 from tensorboardX import SummaryWriter
@@ -45,7 +46,7 @@ def parse_args():
     parser.add_argument('-g', "--game_name", type=str, default="particle-simple_spread", help="name of the game")
     parser.add_argument('-p', "--p", type=float, default=1.1, help="p")
     parser.add_argument('-mu', "--mu", type=float, default=1.5, help="mu")
-    parser.add_argument('-seed', "--seed", type=float, default=1, help="seed")
+    parser.add_argument('-seed', "--seed", type=int, default=1, help="seed")
     parser.add_argument('-r', "--reward_type", type=str, default="abs", help="reward type")
     parser.add_argument('-mp', "--max_path_length", type=int, default=30, help="reward type")
     parser.add_argument('-ms', "--max_steps", type=int, default=100000, help="reward type")
@@ -56,7 +57,7 @@ def parse_args():
     parser.add_argument('-re', "--repeat", type=bool, default=False, help="name of the game")
     parser.add_argument('-a', "--aux", type=bool, default=True, help="name of the game")
     parser.add_argument('-m', "--model_names_setting", type=str, default='PR2AC4_PR2AC4', help="models setting agent vs adv")
-    parser.add_argument("--logging-enabled", action="store_true", help="enable logging")
+    parser.add_argument('-w',"--wandb_enabled", action="store_true", help="enable wandb")
     return parser.parse_args()
 
 def set_global_seeds(seed):
@@ -65,12 +66,12 @@ def set_global_seeds(seed):
 
     :param seed: (int) the seed
     """
-    tf.set_random_seed(seed)
+    #tf.set_random_seed(seed)
     np.random.seed(seed)
     random.seed(seed)
-    # # prng was removed in latest gym version
-    # if hasattr(gym.spaces, 'prng'):
-    #     gym.spaces.prng.seed(seed)
+    # prng was removed in latest gym version
+    if hasattr(gym.spaces, 'prng'):
+        gym.spaces.prng.seed(seed)
 def main(arglist):
 
     set_global_seeds(arglist.seed)
@@ -111,23 +112,23 @@ def main(arglist):
     if not arglist.aux:
         model_name = model_name + '-{}'.format(arglist.aux)
     
-    suffix = 'lagrangian/{}/{}/{}/{}'.format(path_prefix, agent_num, model_name, timestamp)
-    tb_suffix = 'lagrangian/{}_{}_{}_{}'.format(path_prefix, agent_num, model_name, timestamp)
-    print(suffix)
-    logger.add_tabular_output('./log/no_reward_noise/stay_in_sight/{}.csv'.format(suffix))
-    snapshot_dir = './snapshot/{}'.format(suffix)
-    policy_dir = './policy/{}'.format(suffix)
-    os.makedirs(snapshot_dir, exist_ok=True)
-    os.makedirs(policy_dir, exist_ok=True)
-    logger.set_snapshot_dir(snapshot_dir)
-    tb_writer = None
-    if arglist.logging_enabled:
-        tb_writer = SummaryWriter('./log/no_reward_noise/stay_in_sight/tb_{}'.format(tb_suffix)) # NOTE added
+    # suffix = 'lagrangian/{}/{}/{}/{}'.format(path_prefix, agent_num, model_name, timestamp)
+    # tb_suffix = 'lagrangian/{}_{}_{}_{}'.format(path_prefix, agent_num, model_name, timestamp)
+    # print(suffix)
+    # logger.add_tabular_output('./log/test/{}.csv'.format(suffix))
+    # snapshot_dir = './snapshot/{}'.format(suffix)
+    # policy_dir = './policy/{}'.format(suffix)
+    # os.makedirs(snapshot_dir, exist_ok=True)
+    # os.makedirs(policy_dir, exist_ok=True)
+    # logger.set_snapshot_dir(snapshot_dir)
+    # tb_writer = None
+    # if arglist.logging_enabled:
+    #     tb_writer = SummaryWriter('./log/test/tb_{}'.format(tb_suffix)) # NOTE added
 
     agents = []
     M = arglist.hidden_size
     batch_size = arglist.batch_size
-    sampler = MASampler(tb_writer=tb_writer ,agent_num=agent_num, joint=True, max_path_length=arglist.max_path_length, min_pool_size=100, batch_size=batch_size, logging = arglist.logging_enabled)
+    sampler = MASampler(agent_num=agent_num, joint=True, max_path_length=arglist.max_path_length, min_pool_size=100, batch_size=batch_size)
 
     base_kwargs = {
         'sampler': sampler,
@@ -137,8 +138,31 @@ def main(arglist):
         'eval_render': True,
         'eval_n_episodes': 10
     }
-    # centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='centralized_vf',agent_num=len(agents))
-    # target_centralized_v_fn = CentralizedNNVFunction(env_spec=env.env_specs, hidden_layer_sizes=[M, M], name='target_centralized_vf',agent_num=len(agents))
+    
+    from dataclasses import dataclass, asdict
+    @dataclass
+    class TrainingConfig:
+        qf_lr:float = 1e-4
+        safe_qf_lr:float = 1e-4
+        policy_lr:float = 1e-4
+        beta_lr:float = 5e-4
+        discount:float = 0.99
+        safety_discount:float = 0.99
+        reward_scale:float = 1.
+        safety_cost_scale:float = 10.
+        safety_bound:float = 0.5
+    
+    training_config = TrainingConfig()
+    if arglist.wandb_enabled:
+        wandb_config = {
+            'game_name': arglist.game_name,
+            'model_type': arglist.model_names_setting,
+            'seed' : arglist.seed,
+            'batch_size': batch_size,
+            'hidden_size':M,
+        }
+        wandb_config.update(asdict(training_config))
+        wandb.init(project="marl",config=wandb_config)
     with U.single_threaded_session():
         for i, model_name in enumerate(model_names):
             if 'PR2AC' in model_name:
@@ -147,9 +171,9 @@ def main(arglist):
                 mu = arglist.mu
                 if 'G' in model_name:
                     g = True
-                agent = pr2ac_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux,logging=arglist.logging_enabled,lagrangian=True)
+                agent = pr2ac_agent(model_name, i, env, M, u_range, base_kwargs, k=k, g=g, mu=mu, game_name=game_name, aux=arglist.aux,lagrangian=True,training_config=training_config)
             elif model_name == 'MASQL':
-                agent = masql_agent(tb_writer,model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
+                agent = masql_agent(model_name, i, env, M, u_range, base_kwargs, game_name=game_name)
             else:
                 if model_name == 'DDPG':
                     joint = False
@@ -160,7 +184,7 @@ def main(arglist):
                 elif model_name == 'DDPG-OM' or model_name == 'DDPG-ToM':
                     joint = True
                     opponent_modelling = True
-                agent = ddpg_agent(tb_writer ,joint, opponent_modelling, model_names, i, env, M, u_range, base_kwargs, game_name=game_name)
+                agent = ddpg_agent(joint, opponent_modelling, model_names, i, env, M, u_range, base_kwargs, game_name=game_name)
 
             agents.append(agent)
 
@@ -183,9 +207,9 @@ def main(arglist):
                 pass
 
         for epoch in gt.timed_for(range(base_kwargs['n_epochs'] + 1)):
-            logger.push_prefix('Epoch #%d | ' % epoch)
-            if epoch % 1 == 0:
-                print(suffix)
+            #logger.push_prefix('Epoch #%d | ' % epoch)
+            # if epoch % 1 == 0:
+            #     print(suffix)
             for t in range(base_kwargs['epoch_length']):
                 # TODO.code consolidation: Add control interval to sampler
                 if not initial_exploration_done:
@@ -271,11 +295,11 @@ def main(arglist):
                                 batch_actions_k = agent._policy.get_all_actions(batch_n[i]['next_observations'])
                                 actions_k = [a[0][0] for a in batch_actions_k]
                                 all_actions_k.append(';'.join(list(map(str, actions_k))))
-                    if len(all_actions_k) > 0:
-                        with open('{}/all_actions.csv'.format(policy_dir), 'a') as f:
-                            f.write(','.join(list(map(str, all_actions_k))) + '\n')
-                    with open('{}/policy.csv'.format(policy_dir), 'a') as f:
-                        f.write(','.join(list(map(str, current_actions)))+'\n')
+                    # if len(all_actions_k) > 0:
+                    #     with open('{}/all_actions.csv'.format(policy_dir), 'a') as f:
+                    #         f.write(','.join(list(map(str, all_actions_k))) + '\n')
+                    # with open('{}/policy.csv'.format(policy_dir), 'a') as f:
+                    #     f.write(','.join(list(map(str, current_actions)))+'\n')
                     # print('============')
                     ##################### training ####################
                     for i, agent in enumerate(agents):
@@ -300,6 +324,14 @@ def main(arglist):
                             agent._do_training(iteration=t + epoch * agent._epoch_length, batch=batch_n[i], annealing=alpha)
                         else:
                             agent._do_training(iteration=t + epoch * agent._epoch_length, batch=batch_n[i])
+                    if arglist.wandb_enabled:
+                        log_dict = {}
+                        log_dict = sampler.log_diagnostics(log_dict)   
+                        for i, agent in enumerate(agents):
+                            log_dict = agent.log_diagnostics(iteration=t + epoch * agent._epoch_length, batch=batch_n[i], annealing=alpha, log_dict=log_dict)  
+                        wandb.log(log_dict)
+                    #logger.dump_tabular(with_prefix=False)
+
                 gt.stamp('train')
 
             # self._evaluate(epoch)
@@ -318,8 +350,8 @@ def main(arglist):
             # logger.record_tabular('epoch', epoch)
 
             # sampler.log_diagnostics()
-            logger.dump_tabular(with_prefix=False)
-            logger.pop_prefix()
+            # logger.dump_tabular(with_prefix=False)
+            # logger.pop_prefix()
             sampler.terminate()
 
 
