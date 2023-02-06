@@ -43,7 +43,7 @@ def parse_args():
     # ['particle-simple_spread', 'particle-simple_adversary', 'particle-simple_tag', 'particle-simple_push']
     # matrix-prison , matrix-prison
     # pbeauty
-    parser.add_argument('-g', "--game_name", type=str, default="particle-simple_spread", help="name of the game")
+    parser.add_argument('-g', "--game_name", type=str, default="particle-simple_spread_obstacle", help="name of the game")
     parser.add_argument('-p', "--p", type=float, default=1.1, help="p")
     parser.add_argument('-mu', "--mu", type=float, default=1.5, help="mu")
     parser.add_argument('-seed', "--seed", type=int, default=1, help="seed")
@@ -149,9 +149,9 @@ def main(arglist):
         discount:float = 0.99
         safety_discount:float = 0.99
         reward_scale:float = 1.
-        safety_cost_scale:float = 10.
+        safety_cost_scale:float = 5.
         safety_bound:float = 0.5
-        lagrangian:bool = False
+        lagrangian:bool = True
     
     training_config = TrainingConfig()
     if arglist.wandb_enabled:

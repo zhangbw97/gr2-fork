@@ -215,8 +215,10 @@ class MASampler(SimpleSampler):
         self._path_length += 1
         self._path_return += np.array(reward_n, dtype=np.float32) #- np.array(safety_cost_n, dtype=np.float32) 
         for i, agent in enumerate(self.agents):
-            self._path_collision_num[i] += safety_cost_n[i]
-            self._total_collision_num[i] += safety_cost_n[i]
+            # assert collision -> cost 1
+            if safety_cost_n[i] == 1:
+                self._path_collision_num[i] += 1
+                self._total_collision_num[i] += 1
         #self._mean_reward = (self._mean_reward * self._total_samples + np.sum(reward_n)) / (self._total_samples + len(reward_n))
         self._total_samples += 1
         if self._render_enabled:
